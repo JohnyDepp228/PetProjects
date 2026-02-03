@@ -1,0 +1,4 @@
+project(BANK_Server 
+	VERSION 3.20
+	LANGUAGES CXX
+	)
