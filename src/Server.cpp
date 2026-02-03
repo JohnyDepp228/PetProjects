@@ -6,8 +6,6 @@
 #include <mutex>
 #include <semaphore>
 
-
-
 void WriteTo(HANDLE hPipe) {
 	BOOL write_pipe;
 	DWORD written_Bytes = 0;
@@ -38,8 +36,9 @@ void Readfrom(HANDLE hPipe) {
 		std::cout << "New number of card: " << card_num1 << std::endl;
 	}
 }
-void WriteThread(HANDLE hThread, HANDLE hPipe, DWORD id, HANDLE hSemWr) {
-	hThread = CreateThread(
+void WriteThread(HANDLE hPipe, HANDLE hSemWr) {
+	DWORD id;
+	HANDLE hThread = CreateThread(
 		NULL,
 		0,
 		[](LPVOID param) -> DWORD {
@@ -48,17 +47,62 @@ void WriteThread(HANDLE hThread, HANDLE hPipe, DWORD id, HANDLE hSemWr) {
 			return 0;
 		}, hPipe, 0, &id);
 	if (hThread == NULL) { std::cout << "Error with thread " << GetLastError() << std::endl; }
-	Sleep(500);
+
 	std::cout << "Thread with id " << id << " start writing" << std::endl;
-	Sleep(700);
-	if (hThread != NULL) { WaitForSingleObject(hThread, INFINITE); }
+
 	if (hThread != NULL) WaitForSingleObject(hThread, INFINITE);
 	std::cout << "Thread with id " << id << " end" << std::endl;
 	if (hThread != NULL) CloseHandle(hThread);
-	Sleep(500);
+
 	if (hSemWr != NULL) { ReleaseSemaphore(hSemWr, 1, NULL); }
 	std::cout << "SemWr++" << std::endl;
 }
+
+void ReadThread(HANDLE hSemRd, HANDLE hPipe) {
+	DWORD id;
+	std::cout << "SemRd--" << std::endl;
+	HANDLE hThread = CreateThread(
+		NULL,
+		0,
+		[](LPVOID param) -> DWORD {
+			HANDLE hPipe = (HANDLE)param;
+			Readfrom(hPipe);
+			return 0;
+		}, hPipe, 0, &id);
+	std::cout << "Thread with id " << id << " start reading" << std::endl;
+	if (hThread != NULL) { WaitForSingleObject(hThread, INFINITE); }
+	std::cout << "Thread with id " << id << " end" << std::endl;
+	if (hThread != NULL) CloseHandle(hThread);
+}
+
+void Initialize(HANDLE& hSemSigToWrite, HANDLE& hSemWr, HANDLE& hSemRd, HANDLE& hPipe, const DWORD& p_output, const DWORD& p_input, BOOL& connect_pipe) {
+	hSemSigToWrite = CreateSemaphoreA(NULL, 0, 1, "SemSigToWrite");
+	hSemWr = CreateSemaphoreA(NULL, 0, 1, "MySemWr");
+	hSemRd = OpenSemaphoreA(SYNCHRONIZE, FALSE, "MySemRd");
+	hPipe = CreateNamedPipeA(
+		"\\\\.\\pipe\\Server_pipe"
+		, PIPE_ACCESS_DUPLEX
+		, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_ACCEPT_REMOTE_CLIENTS
+		, PIPE_UNLIMITED_INSTANCES
+		, p_output
+		, p_input
+		, NMPWAIT_WAIT_FOREVER
+		, NULL);
+	if (hPipe == INVALID_HANDLE_VALUE) {
+		std::cout << "Error with pipe " << GetLastError() << std::endl;
+		exit(0);
+	}
+	else {
+		std::cout << "========= Server start =========" << std::endl;
+		connect_pipe = ConnectNamedPipe(hPipe, NULL);
+	}
+}
+
+HANDLE hPipe = NULL;
+HANDLE hSemWr = NULL;
+HANDLE hSemRd = NULL;
+HANDLE hSemEx = NULL;
+
 int main()
 {
 	int i = 0;
@@ -67,21 +111,17 @@ int main()
 	BOOL disconect_pipe;
 	BOOL closehandle;
 	BOOL CloseHandleThreadWrite;
-	HANDLE hPipe = NULL;
-	HANDLE hSemWr = NULL;
 	HANDLE hSemSigToWrite = NULL;
-	HANDLE hSemRd = NULL;
-	DWORD id = 0;
 	DWORD p_input = 20;
 	DWORD p_output = 20;
-	HANDLE hThread = NULL;
 	HANDLE hThreadReading = NULL;
 	HANDLE hThreadWriting = NULL;
-
+	HANDLE hThreadExit = NULL;
 	//initialize
 	hSemSigToWrite = CreateSemaphoreA(NULL, 0, 1, "SemSigToWrite");
 	hSemWr = CreateSemaphoreA(NULL, 0, 1, "MySemWr");
-	hSemRd = OpenSemaphoreA(SYNCHRONIZE, FALSE, "MySemRd");
+	hSemRd = CreateSemaphoreA(NULL, 0, 1, "MySemRd");
+	hSemEx = CreateSemaphoreA(NULL, 0, 1, "MySemEx");
 	hPipe = CreateNamedPipeA(
 		"\\\\.\\pipe\\Server_pipe"
 		, PIPE_ACCESS_DUPLEX
@@ -98,73 +138,49 @@ int main()
 	else {
 		std::cout << "========= Server start =========" << std::endl;
 	}
-
-
-	//connecting
 	connect_pipe = ConnectNamedPipe(hPipe, NULL);
+
 	if (connect_pipe) {
 		while (1) {
-			Sleep(500);
+			Sleep(700);
 			std::cout << "Working..." << std::endl;
-
-
 			//signal to write
 			hThreadWriting = CreateThread(NULL,
 				0,
 				[](LPVOID param) -> DWORD {
 					HANDLE hSemSigToWrite = (HANDLE)param;
 					WaitForSingleObject(hSemSigToWrite, INFINITE);
-					//WriteThread(hThread, hPipe, id, hSemWr);
+					WriteThread(hPipe, hSemWr);
+					if (hSemSigToWrite != NULL) CloseHandle(hSemSigToWrite);
 					return 0;
 				},
 				hSemSigToWrite, 0, NULL);
 
-			//writing
-			/*hThread = CreateThread(
-				NULL,
+			//signal to read
+			hThreadReading = CreateThread(NULL,
 				0,
 				[](LPVOID param) -> DWORD {
-					HANDLE hPipe = (HANDLE)param;
-					WriteTo(hPipe);
+					HANDLE hSemRd = (HANDLE)param;
+					if (hSemRd != NULL) WaitForSingleObject(hSemRd, INFINITE);
+					ReadThread(hSemRd, hPipe);
 					return 0;
-				}, hPipe, 0, &id);
-			if (hThread == NULL) { std::cout << "Error with thread " << GetLastError() << std::endl; }
-			Sleep(500);
-			std::cout << "Thread with id " << id << " start writing" << std::endl;
-			Sleep(700);
-			if (hThread != NULL) { WaitForSingleObject(hThread, INFINITE); }
-			if (hThread != NULL) WaitForSingleObject(hThread, INFINITE);
-			std::cout << "Thread with id " << id << " end" << std::endl;
-			if (hThread != NULL) CloseHandle(hThread);
-			Sleep(500);
-			if (hSemWr != NULL) { ReleaseSemaphore(hSemWr, 1, NULL); }
-			std::cout << "SemWr++" << std::endl;*/
+				}, hSemRd, 0, NULL);
 
-
-			//reading 
-			/*Sleep(500);
-			if (hSemRd != NULL) WaitForSingleObject(hSemRd, INFINITE);
-			std::cout << "SemRd--" << std::endl;
-			hThread = CreateThread(
-				NULL,
+			hThreadExit = CreateThread(NULL,
 				0,
 				[](LPVOID param) -> DWORD {
-					HANDLE hPipe = (HANDLE)param;
-					Readfrom(hPipe);
+					HANDLE hSemEx = (HANDLE)param;
+					if (hSemEx != NULL) WaitForSingleObject(hSemEx, INFINITE);
+					exit(1);
 					return 0;
-				}, hPipe, 0, &id);
-			Sleep(500);
-			std::cout << "Thread with id " << id << " start reading" << std::endl;
-			Sleep(700);
-			if (hThread != NULL) { WaitForSingleObject(hThread, INFINITE); }
-			std::cout << "Thread with id " << id << " end" << std::endl;
-			if (hThread != NULL) CloseHandle(hThread);
-			Sleep(500);*/
+				}, hSemEx, 0, NULL);
 		}
 	}
 	else {
-		std::cout << "Error with  connecting to PIPE " << GetLastError() << std::endl;
+		std::cout << "Error with connecting to PIPE " << GetLastError() << std::endl;
 	}
+
+
 	if (hThreadWriting != NULL) WaitForSingleObject(hThreadWriting, INFINITE);
 	if (hThreadWriting != NULL) CloseHandleThreadWrite = CloseHandle(hThreadWriting);
 	FlushFile = FlushFileBuffers(hPipe);

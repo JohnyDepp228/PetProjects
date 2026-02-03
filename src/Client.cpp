@@ -46,7 +46,7 @@ void WritetoFile(HANDLE hPipe) {
 }
 
 
-void ThreadWrite(LPVOID param, HANDLE hSemWr, HANDLE hPipe, HANDLE hSemSigToWrite) {
+void ThreadRead(LPVOID param, HANDLE hSemWr, HANDLE hPipe, HANDLE hSemSigToWrite) {
 	ReleaseSemaphore(hSemSigToWrite, 1, NULL);
 	if (hSemWr != NULL) WaitForSingleObject(hSemWr, INFINITE);
 	std::cout << "SemWr--" << std::endl;
@@ -58,22 +58,41 @@ void ThreadWrite(LPVOID param, HANDLE hSemWr, HANDLE hPipe, HANDLE hSemSigToWrit
 			return 0;
 		}
 	, hPipe, 0, &id1);
-	Sleep(500);
 	std::cout << "Thread with id " << id1 << " start" << std::endl;
 	if (hThread != NULL) WaitForSingleObject(hThread, INFINITE);
-	Sleep(500);
 	std::cout << "Thread with id " << id1 << " end" << std::endl;
 	if (hThread != NULL) CloseHandle(hThread);
 }
+
+void ThreadWrite(LPVOID param, HANDLE hPipe, HANDLE hSemRd) {
+	long var = 0;
+	DWORD id2 = 0;
+	HANDLE hThread1 = CreateThread(NULL, 0,
+		[](LPVOID lpParam) -> DWORD {
+			HANDLE hPipe = (HANDLE)lpParam;
+			WritetoFile(hPipe);
+			return 0;
+		}
+	, hPipe, 0, &id2);
+	std::cout << "Thread with id " << id2 << " start" << std::endl;
+	if (hThread1 != NULL) WaitForSingleObject(hThread1, INFINITE);
+	std::cout << "Thread with id " << id2 << " end" << std::endl;
+	if (hThread1 != NULL) CloseHandle(hThread1);
+	if (hSemRd != NULL) ReleaseSemaphore(hSemRd, 1, NULL);
+}
+
 int main()
 {
 	HANDLE hPipe;
 	HANDLE hSemRd;
 	HANDLE hSemSigToWrite;
-	hSemRd = CreateSemaphoreA(NULL, 0, 1, "MySemRd");
+	HANDLE hSemSigToExite;
+
+	hSemRd = OpenSemaphoreA(SEMAPHORE_MODIFY_STATE, FALSE, "MySemRd");
 	HANDLE hSemWr;
 	hSemWr = OpenSemaphoreA(SYNCHRONIZE, FALSE, "MySemWr");
 	hSemSigToWrite = OpenSemaphoreA(SEMAPHORE_MODIFY_STATE, FALSE, "SemSigToWrite");
+	hSemSigToExite = OpenSemaphoreA(SEMAPHORE_MODIFY_STATE, FALSE, "MySemEx");
 	hPipe = CreateFileA(
 		"\\\\.\\pipe\\Server_pipe"
 		, GENERIC_ALL
@@ -96,35 +115,24 @@ int main()
 	int i = 0;
 	while (1) {
 		std::cout << "Waiting..." << std::endl;
-		//server -> read
+
 		std::cin >> choose;
 		switch (choose) {
 		case '1':
-			/*ThreadWrite(hPipe, hSemWr, hPipe, hSemSigToWrite);*/
-			ReleaseSemaphore(hSemSigToWrite, 1, NULL); break;
-		case '2':return 2; break;
+			if (hSemSigToWrite) ThreadRead(hPipe, hSemWr, hPipe, hSemSigToWrite);
+			break;
+
+
+		case '2': ThreadWrite(hPipe, hPipe, hSemRd);
+			break;
+
+
+		case '3':if (hSemSigToExite != NULL)
+			ReleaseSemaphore(hSemSigToExite, 1, NULL);
+			return 0;
+			break;
 
 		}
-
-
-
-		//Write->server
-		/*DWORD id2 = 0;
-		HANDLE hThread1 = CreateThread(NULL, 0,
-			[](LPVOID lpParam) -> DWORD {
-				HANDLE hPipe = (HANDLE)lpParam;
-				WritetoFile(hPipe);
-				return 0;
-			}
-		, hPipe, 0, &id2);
-		Sleep(500);
-		std::cout << "Thread with id " << id2 << " start" << std::endl;
-		if (hThread1 != NULL) WaitForSingleObject(hThread1, INFINITE);
-		std::cout << "Thread with id " << id2 << " end" << std::endl;
-		if (hThread1 != NULL) CloseHandle(hThread1);
-		if (hSemRd != NULL) ReleaseSemaphore(hSemRd, 1, NULL);
-		std::cout << "SemRd++" << std::endl;
-		Sleep(700);*/
 	}
 	CloseHandle(hPipe);
 	return 0;
