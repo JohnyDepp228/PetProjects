@@ -144,36 +144,39 @@ int main()
 		while (1) {
 			Sleep(700);
 			std::cout << "Working..." << std::endl;
-			//signal to write
-			hThreadWriting = CreateThread(NULL,
-				0,
-				[](LPVOID param) -> DWORD {
-					HANDLE hSemSigToWrite = (HANDLE)param;
-					WaitForSingleObject(hSemSigToWrite, INFINITE);
-					WriteThread(hPipe, hSemWr);
-					if (hSemSigToWrite != NULL) CloseHandle(hSemSigToWrite);
-					return 0;
-				},
-				hSemSigToWrite, 0, NULL);
+			if (hThreadWriting == NULL) {
+				hThreadWriting = CreateThread(NULL,
+					0,
+					[](LPVOID param) -> DWORD {
+						HANDLE hSemSigToWrite = (HANDLE)param;
+						WaitForSingleObject(hSemSigToWrite, INFINITE);
+						WriteThread(hPipe, hSemWr);
+						if (hSemSigToWrite != NULL) CloseHandle(hSemSigToWrite);
+						return 0;
+					},
+					hSemSigToWrite, 0, NULL);
+			}
 
 			//signal to read
-			hThreadReading = CreateThread(NULL,
-				0,
-				[](LPVOID param) -> DWORD {
-					HANDLE hSemRd = (HANDLE)param;
-					if (hSemRd != NULL) WaitForSingleObject(hSemRd, INFINITE);
-					ReadThread(hSemRd, hPipe);
-					return 0;
-				}, hSemRd, 0, NULL);
+			if (hThreadReading == NULL) {
+				hThreadReading = CreateThread(NULL,
+					0,
+					[](LPVOID param) -> DWORD {
+						HANDLE hSemRd = (HANDLE)param;
+						if (hSemRd != NULL) WaitForSingleObject(hSemRd, INFINITE);
+						ReadThread(hSemRd, hPipe);
+						return 0;
+					}, hSemRd, 0, NULL);
 
-			hThreadExit = CreateThread(NULL,
-				0,
-				[](LPVOID param) -> DWORD {
-					HANDLE hSemEx = (HANDLE)param;
-					if (hSemEx != NULL) WaitForSingleObject(hSemEx, INFINITE);
-					exit(1);
-					return 0;
-				}, hSemEx, 0, NULL);
+				hThreadExit = CreateThread(NULL,
+					0,
+					[](LPVOID param) -> DWORD {
+						HANDLE hSemEx = (HANDLE)param;
+						if (hSemEx != NULL) WaitForSingleObject(hSemEx, INFINITE);
+						exit(1);
+						return 0;
+					}, hSemEx, 0, NULL);
+			}
 		}
 	}
 	else {
