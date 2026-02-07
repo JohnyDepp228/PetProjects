@@ -5,6 +5,42 @@
 #include <functional> 
 #include <mutex>
 #include <semaphore>
+#include <cstring>
+
+#define FILENAME "C:/Users/Boss/Desktop/BankProject/database.txt"
+#define SIZEBYTES 17
+using std::cout;
+using std::endl;
+
+BOOL WriteToDatabase(char* data, HANDLE hdatabase) {
+	SetFilePointer(hdatabase, 0, NULL, FILE_END);
+	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
+		cout << "Invalid file handle" << endl;
+		return FALSE;
+	}
+	BOOL writedata;
+	DWORD wrotebytes;
+	writedata = WriteFile(hdatabase, data, SIZEBYTES, &wrotebytes, NULL);
+	if (wrotebytes < SIZEBYTES) {
+		cout << "Wrote to data less than requird " << SIZEBYTES << "\t" << GetLastError() << endl;
+	}
+	return writedata;
+}
+BOOL ReadFromDatabase(char* data, HANDLE hdatabase) {
+	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
+		cout << "Invalid file handle" << endl;
+		return FALSE;
+	}
+	BOOL readdata;
+	DWORD readbytes;
+	readdata = ReadFile(hdatabase, data, SIZEBYTES, &readbytes, NULL);
+	if (readbytes < SIZEBYTES) {
+		cout << "Read less than requird " << SIZEBYTES << "\t" << GetLastError() << endl;
+	}
+	cout << "Read: " << data << endl;
+	return readdata;
+}
+
 
 void WriteTo(HANDLE hPipe) {
 	BOOL write_pipe;
@@ -23,7 +59,7 @@ void Readfrom(HANDLE hPipe) {
 	BOOL read_pipe;
 	DWORD read_Bytes = 0;
 	char card_num1[17] = { 0 };
-	std::cout << "Reading form pipe..." << std::endl;
+	cout << "Reading form pipe..." << endl;
 	read_pipe = ReadFile(hPipe, card_num1, 17, &read_Bytes, NULL);
 	if (read_pipe) {
 		if (read_Bytes != 17) {
@@ -111,13 +147,16 @@ int main()
 	BOOL disconect_pipe;
 	BOOL closehandle;
 	BOOL CloseHandleThreadWrite;
+	BOOL WriteToBase;
 	HANDLE hSemSigToWrite = NULL;
 	DWORD p_input = 20;
 	DWORD p_output = 20;
 	HANDLE hThreadReading = NULL;
 	HANDLE hThreadWriting = NULL;
 	HANDLE hThreadExit = NULL;
+	HANDLE hdatabase;
 	//initialize
+	hdatabase = CreateFileA(FILENAME, GENERIC_ALL, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	hSemSigToWrite = CreateSemaphoreA(NULL, 0, 1, "SemSigToWrite");
 	hSemWr = CreateSemaphoreA(NULL, 0, 1, "MySemWr");
 	hSemRd = CreateSemaphoreA(NULL, 0, 1, "MySemRd");
@@ -183,11 +222,11 @@ int main()
 		std::cout << "Error with connecting to PIPE " << GetLastError() << std::endl;
 	}
 
-
 	if (hThreadWriting != NULL) WaitForSingleObject(hThreadWriting, INFINITE);
 	if (hThreadWriting != NULL) CloseHandleThreadWrite = CloseHandle(hThreadWriting);
 	FlushFile = FlushFileBuffers(hPipe);
 	disconect_pipe = DisconnectNamedPipe(hPipe);
 	closehandle = CloseHandle(hPipe);
+	CloseHandle(hdatabase);
 	return 0;
 }
