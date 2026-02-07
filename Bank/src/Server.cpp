@@ -22,7 +22,7 @@ BOOL WriteToDatabase(char* data, HANDLE hdatabase) {
 	DWORD wrotebytes;
 	writedata = WriteFile(hdatabase, data, SIZEBYTES, &wrotebytes, NULL);
 	if (wrotebytes < SIZEBYTES) {
-		cout << "Wrote to data less than requird " << SIZEBYTES << "\t" << GetLastError() << endl;
+		cout << "Wrote to data less than requird " << GetLastError() << endl;
 	}
 	return writedata;
 }
@@ -35,43 +35,55 @@ BOOL ReadFromDatabase(char* data, HANDLE hdatabase) {
 	DWORD readbytes;
 	readdata = ReadFile(hdatabase, data, SIZEBYTES, &readbytes, NULL);
 	if (readbytes < SIZEBYTES) {
-		cout << "Read less than requird " << SIZEBYTES << "\t" << GetLastError() << endl;
+		cout << "Read less than requird " << GetLastError() << endl;
 	}
-	cout << "Read: " << data << endl;
+	cout << "Read from database: " << data << endl;
 	return readdata;
 }
-
-
 void WriteTo(HANDLE hPipe) {
 	BOOL write_pipe;
 	DWORD written_Bytes = 0;
-	char card_num[] = { "1234567812345678\0" };
-	write_pipe = WriteFile(hPipe, card_num, 17, &written_Bytes, NULL);
-	if (written_Bytes != 17) {
+	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_ALL, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	char card_num[SIZEBYTES] = { 0 };
+	ReadFromDatabase(card_num, hdatabase);
+	write_pipe = WriteFile(hPipe, card_num, SIZEBYTES, &written_Bytes, NULL);
+	if (written_Bytes != SIZEBYTES) {
 		std::cout << "Written less bytes " << written_Bytes << std::endl;
+		CloseHandle(hdatabase);
 		exit(1);
 	}
-	else {
-		std::cout << "Success" << std::endl;
-	}
+	CloseHandle(hdatabase);
 }
+//Запись в базуданных
 void Readfrom(HANDLE hPipe) {
 	BOOL read_pipe;
 	DWORD read_Bytes = 0;
-	char card_num1[17] = { 0 };
+	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_ALL, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	char card_num1[SIZEBYTES] = { 0 };
+	char card_num[SIZEBYTES] = { 0 };
 	cout << "Reading form pipe..." << endl;
-	read_pipe = ReadFile(hPipe, card_num1, 17, &read_Bytes, NULL);
+	read_pipe = ReadFile(hPipe, card_num1, SIZEBYTES, &read_Bytes, NULL);
 	if (read_pipe) {
-		if (read_Bytes != 17) {
+		if (read_Bytes != SIZEBYTES) {
 			std::cout << "Read less bytes " << read_Bytes << " " << GetLastError() << std::endl;
+			CloseHandle(hdatabase);
 			exit(1);
 		}
-		else {
-			std::cout << "Success" << std::endl;
+		while (ReadFromDatabase(card_num, hdatabase)) {
+			if (strcmp(card_num, card_num1) != 0) {
+				WriteToDatabase(card_num1, hdatabase);
+				cout << "New number of card: " << card_num1 << endl;
+				break;
+			}
+			else {
+				cout << "Such card number already exist " << endl;
+			}
 		}
-		std::cout << "New number of card: " << card_num1 << std::endl;
+		CloseHandle(hdatabase);
 	}
 }
+
+
 void WriteThread(HANDLE hPipe, HANDLE hSemWr) {
 	DWORD id;
 	HANDLE hThread = CreateThread(
@@ -91,12 +103,9 @@ void WriteThread(HANDLE hPipe, HANDLE hSemWr) {
 	if (hThread != NULL) CloseHandle(hThread);
 
 	if (hSemWr != NULL) { ReleaseSemaphore(hSemWr, 1, NULL); }
-	std::cout << "SemWr++" << std::endl;
 }
-
-void ReadThread(HANDLE hSemRd, HANDLE hPipe) {
+void ReadThread(HANDLE hPipe) {
 	DWORD id;
-	std::cout << "SemRd--" << std::endl;
 	HANDLE hThread = CreateThread(
 		NULL,
 		0,
@@ -110,6 +119,8 @@ void ReadThread(HANDLE hSemRd, HANDLE hPipe) {
 	std::cout << "Thread with id " << id << " end" << std::endl;
 	if (hThread != NULL) CloseHandle(hThread);
 }
+
+
 
 void Initialize(HANDLE& hSemSigToWrite, HANDLE& hSemWr, HANDLE& hSemRd, HANDLE& hPipe, const DWORD& p_output, const DWORD& p_input, BOOL& connect_pipe) {
 	hSemSigToWrite = CreateSemaphoreA(NULL, 0, 1, "SemSigToWrite");
@@ -147,16 +158,13 @@ int main()
 	BOOL disconect_pipe;
 	BOOL closehandle;
 	BOOL CloseHandleThreadWrite;
-	BOOL WriteToBase;
 	HANDLE hSemSigToWrite = NULL;
 	DWORD p_input = 20;
 	DWORD p_output = 20;
 	HANDLE hThreadReading = NULL;
 	HANDLE hThreadWriting = NULL;
 	HANDLE hThreadExit = NULL;
-	HANDLE hdatabase;
 	//initialize
-	hdatabase = CreateFileA(FILENAME, GENERIC_ALL, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	hSemSigToWrite = CreateSemaphoreA(NULL, 0, 1, "SemSigToWrite");
 	hSemWr = CreateSemaphoreA(NULL, 0, 1, "MySemWr");
 	hSemRd = CreateSemaphoreA(NULL, 0, 1, "MySemRd");
@@ -189,6 +197,7 @@ int main()
 					[](LPVOID param) -> DWORD {
 						HANDLE hSemSigToWrite = (HANDLE)param;
 						WaitForSingleObject(hSemSigToWrite, INFINITE);
+
 						WriteThread(hPipe, hSemWr);
 						if (hSemSigToWrite != NULL) CloseHandle(hSemSigToWrite);
 						return 0;
@@ -203,7 +212,7 @@ int main()
 					[](LPVOID param) -> DWORD {
 						HANDLE hSemRd = (HANDLE)param;
 						if (hSemRd != NULL) WaitForSingleObject(hSemRd, INFINITE);
-						ReadThread(hSemRd, hPipe);
+						ReadThread(hPipe);
 						return 0;
 					}, hSemRd, 0, NULL);
 
@@ -226,7 +235,5 @@ int main()
 	if (hThreadWriting != NULL) CloseHandleThreadWrite = CloseHandle(hThreadWriting);
 	FlushFile = FlushFileBuffers(hPipe);
 	disconect_pipe = DisconnectNamedPipe(hPipe);
-	closehandle = CloseHandle(hPipe);
-	CloseHandle(hdatabase);
 	return 0;
 }
