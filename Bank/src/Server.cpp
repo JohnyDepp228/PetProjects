@@ -169,8 +169,8 @@ int main()
 	BOOL closehandle;
 	BOOL CloseHandleThreadWrite;
 	HANDLE hSemSigToWrite = NULL;
-	DWORD p_input = 20;
-	DWORD p_output = 20;
+	DWORD p_input = sizeof(Client);
+	DWORD p_output = sizeof(Client);
 	HANDLE hThreadReading = NULL;
 	HANDLE hThreadWriting = NULL;
 	HANDLE hThreadExit = NULL;
