@@ -15,16 +15,22 @@ using std::string;
 BOOL GlobalBwrite = FALSE;
 
 
+struct Client {
+	double balance;
+	DWORD id;
+	char card_num[17];
+};
+
 
 void ReadFromFile(HANDLE hPipe) {
 	BOOL read_pipe;
 	string temp_card;
 	DWORD read_Bytes = 0;
-	char card_num[SIZEBYTES] = { 0 };
-	read_pipe = ReadFile(hPipe, card_num, SIZEBYTES, &read_Bytes, NULL);
+	Client k;
+	read_pipe = ReadFile(hPipe, &k, sizeof(Client), &read_Bytes, NULL);
 
 	if (read_pipe) {
-		if (read_Bytes < SIZEBYTES) {
+		if (read_Bytes < sizeof(Client)) {
 			cout << "Read less " << GetLastError() << endl;
 			exit(1);
 		}
@@ -34,10 +40,10 @@ void ReadFromFile(HANDLE hPipe) {
 			if (temp_card.size() != 16) { cout << "Invalid card number " << endl; }
 			else
 			{
-				if (strcmp(card_num, temp_card.c_str()) == 0)
+				if (strcmp(k.card_num, temp_card.c_str()) == 0)
 				{
 					cout << "Access approved" << endl;
-					cout << "Number of card: " << card_num << endl;
+					cout << "Number of card: " << k.card_num << endl;
 				}
 				else cout << "Access denied " << endl;
 			}
@@ -51,19 +57,20 @@ void ReadFromFile(HANDLE hPipe) {
 BOOL WritetoFile(HANDLE hPipe) {
 	BOOL write_pipe = FALSE;
 	DWORD wrote_Bytes = 0;
-	string card_num;
+	Client k;
 	cout << "Enter your card number " << endl;
-	cin >> card_num;
-	if (card_num.size() != 16) { cout << "Invalid card number " << endl; return FALSE; }
-	else write_pipe = WriteFile(hPipe, card_num.c_str(), SIZEBYTES, &wrote_Bytes, NULL);
-
+	cin >> k.card_num;
+	k.balance = 100.5;
+	k.id = 1;
+	if (strlen(k.card_num) != 16) { cout << "Invalid card number " << endl; return FALSE; }
+	else write_pipe = WriteFile(hPipe, &k, sizeof(Client), &wrote_Bytes, NULL);
 	if (write_pipe) {
-		if (wrote_Bytes < SIZEBYTES) {
+		if (wrote_Bytes < 29) {
 			cout << "Wrote less " << GetLastError() << endl;
 			exit(1);
 		}
 		else {
-			cout << "Number of card: " << card_num << endl;
+			cout << "Number of card: " << k.card_num << endl;
 			return TRUE;
 		}
 	}
@@ -117,7 +124,6 @@ int main()
 	HANDLE hSemRd;
 	HANDLE hSemSigToWrite;
 	HANDLE hSemSigToExite;
-
 	hSemRd = OpenSemaphoreA(SEMAPHORE_MODIFY_STATE, FALSE, "MySemRd");
 	HANDLE hSemWr;
 	hSemWr = OpenSemaphoreA(SYNCHRONIZE, FALSE, "MySemWr");
@@ -143,7 +149,6 @@ int main()
 	DWORD p_output = 20;
 	char choose;
 	int i = 0;
-	std::string temp_card;
 	while (1) {
 		Menu();
 		cout << "Waiting..." << endl;

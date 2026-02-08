@@ -12,7 +12,16 @@
 using std::cout;
 using std::endl;
 
-BOOL WriteToDatabase(char* data, HANDLE hdatabase) {
+
+struct Client {
+	double balance;
+	DWORD id;
+	char card_num[17];
+};
+
+
+
+BOOL WriteToDatabase(const Client& k, HANDLE hdatabase) {
 	SetFilePointer(hdatabase, 0, NULL, FILE_END);
 	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
 		cout << "Invalid file handle" << endl;
@@ -20,24 +29,24 @@ BOOL WriteToDatabase(char* data, HANDLE hdatabase) {
 	}
 	BOOL writedata;
 	DWORD wrotebytes;
-	writedata = WriteFile(hdatabase, data, SIZEBYTES, &wrotebytes, NULL);
-	if (wrotebytes < SIZEBYTES) {
+	writedata = WriteFile(hdatabase, &k, sizeof(Client), &wrotebytes, NULL);
+	if (wrotebytes < sizeof(Client)) {
 		cout << "Wrote to data less than requird " << GetLastError() << endl;
 	}
 	return writedata;
 }
-BOOL ReadFromDatabase(char* data, HANDLE hdatabase) {
+BOOL ReadFromDatabase(Client& k, HANDLE hdatabase) {
 	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
 		cout << "Invalid file handle" << endl;
 		return FALSE;
 	}
 	BOOL readdata;
 	DWORD readbytes;
-	readdata = ReadFile(hdatabase, data, SIZEBYTES, &readbytes, NULL);
-	if (readbytes < SIZEBYTES) {
+	readdata = ReadFile(hdatabase, &k, sizeof(Client), &readbytes, NULL);
+	if (readbytes < sizeof(Client)) {
 		cout << "Read less than requird " << GetLastError() << endl;
 	}
-	cout << "Read from database: " << data << endl;
+	cout << "Read from database card: " << k.card_num << "with balance" << k.balance << endl;
 	return readdata;
 }
 void WriteTo(HANDLE hPipe) {
@@ -45,9 +54,10 @@ void WriteTo(HANDLE hPipe) {
 	DWORD written_Bytes = 0;
 	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_ALL, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	char card_num[SIZEBYTES] = { 0 };
-	ReadFromDatabase(card_num, hdatabase);
-	write_pipe = WriteFile(hPipe, card_num, SIZEBYTES, &written_Bytes, NULL);
-	if (written_Bytes != SIZEBYTES) {
+	Client temp;
+	ReadFromDatabase(temp, hdatabase);
+	write_pipe = WriteFile(hPipe, &temp, sizeof(Client), &written_Bytes, NULL);
+	if (written_Bytes != sizeof(Client)) {
 		std::cout << "Written less bytes " << written_Bytes << std::endl;
 		CloseHandle(hdatabase);
 		exit(1);
@@ -59,20 +69,20 @@ void Readfrom(HANDLE hPipe) {
 	BOOL read_pipe;
 	DWORD read_Bytes = 0;
 	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_ALL, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-	char card_num1[SIZEBYTES] = { 0 };
-	char card_num[SIZEBYTES] = { 0 };
+	Client k1;
+	Client k2;
 	cout << "Reading form pipe..." << endl;
-	read_pipe = ReadFile(hPipe, card_num1, SIZEBYTES, &read_Bytes, NULL);
+	read_pipe = ReadFile(hPipe, &k1, sizeof(Client), &read_Bytes, NULL);
 	if (read_pipe) {
-		if (read_Bytes != SIZEBYTES) {
+		if (read_Bytes != sizeof(Client)) {
 			std::cout << "Read less bytes " << read_Bytes << " " << GetLastError() << std::endl;
 			CloseHandle(hdatabase);
 			exit(1);
 		}
-		while (ReadFromDatabase(card_num, hdatabase)) {
-			if (strcmp(card_num, card_num1) != 0) {
-				WriteToDatabase(card_num1, hdatabase);
-				cout << "New number of card: " << card_num1 << endl;
+		while (ReadFromDatabase(k2, hdatabase)) {
+			if (strcmp(k1.card_num, k2.card_num) != 0) {
+				WriteToDatabase(k1, hdatabase);
+				cout << "New number of card: " << k1.card_num << endl;
 				break;
 			}
 			else {
