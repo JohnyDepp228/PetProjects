@@ -6,6 +6,8 @@
 #include <mutex>
 #include <semaphore>
 #include <cstring>
+#include <string>
+#include <conio.h>
 
 #define FILENAME "C:/Users/Boss/Desktop/BankProject/database.txt"
 #define SIZEBYTES 17
@@ -15,13 +17,39 @@ using std::endl;
 
 struct Client {
 	double balance;
-	DWORD id;
+	unsigned int pin;
 	char card_num[17];
 };
 
 
-
-BOOL WriteToDatabase(const Client& k, HANDLE hdatabase) {
+BOOL WriteToDatabase() {
+	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
+		cout << "Invalid file handle" << endl;
+		return FALSE;
+	}
+	SetFilePointer(hdatabase, 0, NULL, FILE_END);
+	Client k;
+	cout << "Enter card number: " << endl;
+	std::cin >> k.card_num;
+	if (strlen(k.card_num) != 16) {
+		cout << "Invalid card number " << endl;
+		return FALSE;
+	}
+	k.balance = 100.5;
+	k.pin = (atoi(&k.card_num[12]) * 100) + (atoi(&k.card_num[13]) * 10) + atoi(&k.card_num[14]);
+	cout << "PIN: " << k.pin << endl;
+	BOOL writedata;
+	DWORD wrotebytes;
+	writedata = WriteFile(hdatabase, &k, sizeof(Client), &wrotebytes, NULL);
+	if (wrotebytes < sizeof(Client)) {
+		cout << "Wrote to data less than requird " << GetLastError() << endl;
+	}
+	CloseHandle(hdatabase);
+	return writedata;
+}
+BOOL WriteToDatabase(const Client& k) {
+	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	SetFilePointer(hdatabase, 0, NULL, FILE_END);
 	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
 		cout << "Invalid file handle" << endl;
@@ -33,9 +61,11 @@ BOOL WriteToDatabase(const Client& k, HANDLE hdatabase) {
 	if (wrotebytes < sizeof(Client)) {
 		cout << "Wrote to data less than requird " << GetLastError() << endl;
 	}
+	CloseHandle(hdatabase);
 	return writedata;
 }
-BOOL ReadFromDatabase(Client& k, HANDLE hdatabase) {
+BOOL ReadFromDatabase(Client& k) {
+	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
 		cout << "Invalid file handle" << endl;
 		return FALSE;
@@ -49,13 +79,14 @@ BOOL ReadFromDatabase(Client& k, HANDLE hdatabase) {
 	cout << "Read from database card: " << k.card_num << "with balance" << k.balance << endl;
 	return readdata;
 }
+//чтение из базыданных
 void WriteTo(HANDLE hPipe) {
 	BOOL write_pipe;
 	DWORD written_Bytes = 0;
 	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_ALL, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	char card_num[SIZEBYTES] = { 0 };
 	Client temp;
-	ReadFromDatabase(temp, hdatabase);
+	ReadFromDatabase(temp);
 	write_pipe = WriteFile(hPipe, &temp, sizeof(Client), &written_Bytes, NULL);
 	if (written_Bytes != sizeof(Client)) {
 		std::cout << "Written less bytes " << written_Bytes << std::endl;
@@ -68,7 +99,6 @@ void WriteTo(HANDLE hPipe) {
 void Readfrom(HANDLE hPipe) {
 	BOOL read_pipe;
 	DWORD read_Bytes = 0;
-	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_ALL, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	Client k1;
 	Client k2;
 	cout << "Reading form pipe..." << endl;
@@ -76,12 +106,11 @@ void Readfrom(HANDLE hPipe) {
 	if (read_pipe) {
 		if (read_Bytes != sizeof(Client)) {
 			std::cout << "Read less bytes " << read_Bytes << " " << GetLastError() << std::endl;
-			CloseHandle(hdatabase);
 			exit(1);
 		}
-		while (ReadFromDatabase(k2, hdatabase)) {
+		while (ReadFromDatabase(k2)) {
 			if (strcmp(k1.card_num, k2.card_num) != 0) {
-				WriteToDatabase(k1, hdatabase);
+				WriteToDatabase(k1);
 				cout << "New number of card: " << k1.card_num << endl;
 				break;
 			}
@@ -89,7 +118,6 @@ void Readfrom(HANDLE hPipe) {
 				cout << "Such card number already exist " << endl;
 			}
 		}
-		CloseHandle(hdatabase);
 	}
 }
 
@@ -130,8 +158,6 @@ void ReadThread(HANDLE hPipe) {
 	if (hThread != NULL) CloseHandle(hThread);
 }
 
-
-
 void Initialize(HANDLE& hSemSigToWrite, HANDLE& hSemWr, HANDLE& hSemRd, HANDLE& hPipe, const DWORD& p_output, const DWORD& p_input, BOOL& connect_pipe) {
 	hSemSigToWrite = CreateSemaphoreA(NULL, 0, 1, "SemSigToWrite");
 	hSemWr = CreateSemaphoreA(NULL, 0, 1, "MySemWr");
@@ -154,7 +180,22 @@ void Initialize(HANDLE& hSemSigToWrite, HANDLE& hSemWr, HANDLE& hSemRd, HANDLE& 
 		connect_pipe = ConnectNamedPipe(hPipe, NULL);
 	}
 }
+DWORD ImitatioOfWork(LPVOID) {
+	Sleep(500);
+	std::cout << "Working..." << std::endl;
+	return 0;
+}
 
+void Admin(HANDLE hImitatioOfWork) {
+	char code;
+	code = _getch();
+	if (code == '3')
+	{
+		if (hImitatioOfWork != NULL) SuspendThread(hImitatioOfWork);
+		WriteToDatabase();
+		if (hImitatioOfWork != NULL) ResumeThread(hImitatioOfWork);
+	}
+}
 HANDLE hPipe = NULL;
 HANDLE hSemWr = NULL;
 HANDLE hSemRd = NULL;
@@ -174,6 +215,9 @@ int main()
 	HANDLE hThreadReading = NULL;
 	HANDLE hThreadWriting = NULL;
 	HANDLE hThreadExit = NULL;
+	HANDLE hAddtodatabase = NULL;
+	HANDLE hImitatioOfWork = NULL;
+	HANDLE hAdmin = NULL;
 	//initialize
 	hSemSigToWrite = CreateSemaphoreA(NULL, 0, 1, "SemSigToWrite");
 	hSemWr = CreateSemaphoreA(NULL, 0, 1, "MySemWr");
@@ -196,11 +240,11 @@ int main()
 		std::cout << "========= Server start =========" << std::endl;
 	}
 	connect_pipe = ConnectNamedPipe(hPipe, NULL);
-
+	char code;
 	if (connect_pipe) {
 		while (1) {
-			Sleep(700);
-			std::cout << "Working..." << std::endl;
+			if (hImitatioOfWork == NULL) hImitatioOfWork = CreateThread(NULL, 0, ImitatioOfWork, NULL, 0, NULL);
+			Admin(hImitatioOfWork);
 			if (hThreadWriting == NULL) {
 				hThreadWriting = CreateThread(NULL,
 					0,
@@ -235,12 +279,24 @@ int main()
 						return 0;
 					}, hSemEx, 0, NULL);
 			}
+
+			if (hAddtodatabase == NULL) {
+				hAddtodatabase = CreateThread(NULL, 0,
+					[](LPVOID)-> DWORD {
+						char code;
+						std::cin >> code;
+						if (code == '3') { WriteToDatabase(); }
+						return 0;
+					}, NULL, 0, NULL);
+			}
+
 		}
 	}
 	else {
 		std::cout << "Error with connecting to PIPE " << GetLastError() << std::endl;
 	}
-
+	if (hImitatioOfWork != NULL) WaitForSingleObject(hImitatioOfWork, INFINITE);
+	if (hAddtodatabase != NULL) WaitForSingleObject(hAddtodatabase, INFINITE);
 	if (hThreadWriting != NULL) WaitForSingleObject(hThreadWriting, INFINITE);
 	if (hThreadWriting != NULL) CloseHandleThreadWrite = CloseHandle(hThreadWriting);
 	FlushFile = FlushFileBuffers(hPipe);

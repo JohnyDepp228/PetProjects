@@ -17,7 +17,7 @@ BOOL GlobalBwrite = FALSE;
 
 struct Client {
 	double balance;
-	DWORD id;
+	int pin;
 	char card_num[17];
 };
 
@@ -61,7 +61,7 @@ BOOL WritetoFile(HANDLE hPipe) {
 	cout << "Enter your card number " << endl;
 	cin >> k.card_num;
 	k.balance = 100.5;
-	k.id = 1;
+	k.pin = 1;
 	if (strlen(k.card_num) != 16) { cout << "Invalid card number " << endl; return FALSE; }
 	else write_pipe = WriteFile(hPipe, &k, sizeof(Client), &wrote_Bytes, NULL);
 	if (write_pipe) {
