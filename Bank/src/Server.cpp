@@ -14,6 +14,13 @@
 using std::cout;
 using std::endl;
 
+HANDLE hPipe = NULL;
+HANDLE hSemWr = NULL;
+HANDLE hSemRd = NULL;
+HANDLE hSemEx = NULL;
+HANDLE hAccess = NULL;
+HANDLE hDenied = NULL;
+
 
 struct Client {
 	double balance;
@@ -29,7 +36,7 @@ BOOL WriteToDatabase() {
 		return FALSE;
 	}
 	SetFilePointer(hdatabase, 0, NULL, FILE_END);
-	Client k;
+	Client k = { 0.0,000,"0000000000000000" };
 	cout << "Enter card number: " << endl;
 	std::cin >> k.card_num;
 	if (strlen(k.card_num) != 16) {
@@ -37,7 +44,7 @@ BOOL WriteToDatabase() {
 		return FALSE;
 	}
 	k.balance = 100.5;
-	k.pin = (atoi(&k.card_num[12]) * 100) + (atoi(&k.card_num[13]) * 10) + atoi(&k.card_num[14]);
+	k.pin = atoi(&k.card_num[13]);
 	cout << "PIN: " << k.pin << endl;
 	BOOL writedata;
 	DWORD wrotebytes;
@@ -49,10 +56,11 @@ BOOL WriteToDatabase() {
 	return writedata;
 }
 BOOL WriteToDatabase(const Client& k) {
-	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	SetFilePointer(hdatabase, 0, NULL, FILE_END);
 	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
-		cout << "Invalid file handle" << endl;
+		cout << "Invalid file handle Write" << endl;
+		if (hdatabase != NULL) CloseHandle(hdatabase);
 		return FALSE;
 	}
 	BOOL writedata;
@@ -61,13 +69,14 @@ BOOL WriteToDatabase(const Client& k) {
 	if (wrotebytes < sizeof(Client)) {
 		cout << "Wrote to data less than requird " << GetLastError() << endl;
 	}
-	CloseHandle(hdatabase);
+	if (hdatabase != NULL) CloseHandle(hdatabase);
 	return writedata;
 }
 BOOL ReadFromDatabase(Client& k) {
-	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
-		cout << "Invalid file handle" << endl;
+		cout << "Invalid file handle Read" << GetLastError() << endl;
+		if (hdatabase != NULL) CloseHandle(hdatabase);
 		return FALSE;
 	}
 	BOOL readdata;
@@ -77,13 +86,14 @@ BOOL ReadFromDatabase(Client& k) {
 		cout << "Read less than requird " << GetLastError() << endl;
 	}
 	cout << "Read from database card: " << k.card_num << "with balance" << k.balance << endl;
+	if (hdatabase != NULL) CloseHandle(hdatabase);
 	return readdata;
 }
 //чтение из базыданных
 void WriteTo(HANDLE hPipe) {
 	BOOL write_pipe;
 	DWORD written_Bytes = 0;
-	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_ALL, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	char card_num[SIZEBYTES] = { 0 };
 	Client temp;
 	ReadFromDatabase(temp);
@@ -95,12 +105,22 @@ void WriteTo(HANDLE hPipe) {
 	}
 	CloseHandle(hdatabase);
 }
-//Запись в базуданных
+//Проверка доступа + чтение
 void Readfrom(HANDLE hPipe) {
+	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
+		cout << "Invalid file handle Read" << GetLastError() << endl;
+		if (hdatabase != NULL) CloseHandle(hdatabase);
+		return;
+	}
 	BOOL read_pipe;
 	DWORD read_Bytes = 0;
-	Client k1;
-	Client k2;
+	DWORD readbytes;
+	bool bAccess = FALSE;
+	Client k1 = { 0.0,000,"0000000000000000" };
+	Client k2 = { 0.0,000,"0000000000000000" };
+	BOOL semAccsig = FALSE;
+	BOOL semDensig = FALSE;
 	cout << "Reading form pipe..." << endl;
 	read_pipe = ReadFile(hPipe, &k1, sizeof(Client), &read_Bytes, NULL);
 	if (read_pipe) {
@@ -108,19 +128,39 @@ void Readfrom(HANDLE hPipe) {
 			std::cout << "Read less bytes " << read_Bytes << " " << GetLastError() << std::endl;
 			exit(1);
 		}
-		while (ReadFromDatabase(k2)) {
-			if (strcmp(k1.card_num, k2.card_num) != 0) {
-				WriteToDatabase(k1);
-				cout << "New number of card: " << k1.card_num << endl;
+		SetFilePointer(hdatabase, 0, NULL, FILE_BEGIN);
+		while (ReadFile(hdatabase, &k2, sizeof(Client), &readbytes, NULL)) {
+			if (readbytes == 0) {
+				cout << "Reached end of file and no data find " << endl;
+				semDensig = ReleaseSemaphore(hDenied, 1, NULL);
+				if (semDensig == FALSE) {
+					cout << "Didn't sent signl to deny " << endl;
+				}
+				else {
+					cout << "Sent signal to deny successfully" << endl;
+				}
 				break;
 			}
-			else {
-				cout << "Such card number already exist " << endl;
+			if (readbytes < sizeof(Client)) {
+				cout << "Read less than requird " << GetLastError() << endl;
+				return;
+			}
+			if (strcmp(k1.card_num, k2.card_num) == 0 && k1.pin == k2.pin) {
+				semAccsig = ReleaseSemaphore(hAccess, 1, NULL);
+				if (semAccsig == FALSE) {
+					cout << "Didn't sent signl to access " << endl;
+				}
+				else {
+					cout << "Sent signal to access successfully" << endl;
+				}
+				bAccess = TRUE;
+				break;
 			}
 		}
 	}
+	if (!bAccess) cout << "Trying to access" << endl;
+	if (hdatabase != NULL) CloseHandle(hdatabase);
 }
-
 
 void WriteThread(HANDLE hPipe, HANDLE hSemWr) {
 	DWORD id;
@@ -142,48 +182,12 @@ void WriteThread(HANDLE hPipe, HANDLE hSemWr) {
 
 	if (hSemWr != NULL) { ReleaseSemaphore(hSemWr, 1, NULL); }
 }
-void ReadThread(HANDLE hPipe) {
-	DWORD id;
-	HANDLE hThread = CreateThread(
-		NULL,
-		0,
-		[](LPVOID param) -> DWORD {
-			HANDLE hPipe = (HANDLE)param;
-			Readfrom(hPipe);
-			return 0;
-		}, hPipe, 0, &id);
-	std::cout << "Thread with id " << id << " start reading" << std::endl;
-	if (hThread != NULL) { WaitForSingleObject(hThread, INFINITE); }
-	std::cout << "Thread with id " << id << " end" << std::endl;
-	if (hThread != NULL) CloseHandle(hThread);
-}
 
-void Initialize(HANDLE& hSemSigToWrite, HANDLE& hSemWr, HANDLE& hSemRd, HANDLE& hPipe, const DWORD& p_output, const DWORD& p_input, BOOL& connect_pipe) {
-	hSemSigToWrite = CreateSemaphoreA(NULL, 0, 1, "SemSigToWrite");
-	hSemWr = CreateSemaphoreA(NULL, 0, 1, "MySemWr");
-	hSemRd = OpenSemaphoreA(SYNCHRONIZE, FALSE, "MySemRd");
-	hPipe = CreateNamedPipeA(
-		"\\\\.\\pipe\\Server_pipe"
-		, PIPE_ACCESS_DUPLEX
-		, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_ACCEPT_REMOTE_CLIENTS
-		, PIPE_UNLIMITED_INSTANCES
-		, p_output
-		, p_input
-		, NMPWAIT_WAIT_FOREVER
-		, NULL);
-	if (hPipe == INVALID_HANDLE_VALUE) {
-		std::cout << "Error with pipe " << GetLastError() << std::endl;
-		exit(0);
-	}
-	else {
-		std::cout << "========= Server start =========" << std::endl;
-		connect_pipe = ConnectNamedPipe(hPipe, NULL);
-	}
-}
 DWORD ImitatioOfWork(LPVOID) {
-	Sleep(500);
-	std::cout << "Working..." << std::endl;
-	return 0;
+	while (1) {
+		Sleep(500);
+		std::cout << "Working..." << std::endl;
+	}
 }
 
 void Admin(HANDLE hImitatioOfWork) {
@@ -196,10 +200,6 @@ void Admin(HANDLE hImitatioOfWork) {
 		if (hImitatioOfWork != NULL) ResumeThread(hImitatioOfWork);
 	}
 }
-HANDLE hPipe = NULL;
-HANDLE hSemWr = NULL;
-HANDLE hSemRd = NULL;
-HANDLE hSemEx = NULL;
 
 int main()
 {
@@ -207,9 +207,7 @@ int main()
 	BOOL connect_pipe;
 	BOOL FlushFile;
 	BOOL disconect_pipe;
-	BOOL closehandle;
 	BOOL CloseHandleThreadWrite;
-	HANDLE hSemSigToWrite = NULL;
 	DWORD p_input = sizeof(Client);
 	DWORD p_output = sizeof(Client);
 	HANDLE hThreadReading = NULL;
@@ -218,13 +216,16 @@ int main()
 	HANDLE hAddtodatabase = NULL;
 	HANDLE hImitatioOfWork = NULL;
 	HANDLE hAdmin = NULL;
+
+
 	//initialize
-	hSemSigToWrite = CreateSemaphoreA(NULL, 0, 1, "SemSigToWrite");
-	hSemWr = CreateSemaphoreA(NULL, 0, 1, "MySemWr");
-	hSemRd = CreateSemaphoreA(NULL, 0, 1, "MySemRd");
-	hSemEx = CreateSemaphoreA(NULL, 0, 1, "MySemEx");
-	hPipe = CreateNamedPipeA(
-		"\\\\.\\pipe\\Server_pipe"
+	hSemWr = CreateSemaphoreW(NULL, 0, 1, L"Global\\MySemWr");
+	hSemRd = CreateSemaphoreW(NULL, 0, 1, L"Global\\MySemRd");
+	hSemEx = CreateSemaphoreW(NULL, 0, 1, L"Global\\MySemEx");
+	hAccess = CreateSemaphoreW(NULL, 0, 1, L"Global\\SemAccess");
+	hDenied = CreateSemaphoreW(NULL, 0, 1, L"Global\\SemDenied");
+	hPipe = CreateNamedPipeW(
+		L"\\\\.\\pipe\\Server_pipe"
 		, PIPE_ACCESS_DUPLEX
 		, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_ACCEPT_REMOTE_CLIENTS
 		, PIPE_UNLIMITED_INSTANCES
@@ -240,45 +241,49 @@ int main()
 		std::cout << "========= Server start =========" << std::endl;
 	}
 	connect_pipe = ConnectNamedPipe(hPipe, NULL);
-	char code;
 	if (connect_pipe) {
 		while (1) {
-			if (hImitatioOfWork == NULL) hImitatioOfWork = CreateThread(NULL, 0, ImitatioOfWork, NULL, 0, NULL);
-			Admin(hImitatioOfWork);
-			if (hThreadWriting == NULL) {
-				hThreadWriting = CreateThread(NULL,
-					0,
-					[](LPVOID param) -> DWORD {
-						HANDLE hSemSigToWrite = (HANDLE)param;
-						WaitForSingleObject(hSemSigToWrite, INFINITE);
-
-						WriteThread(hPipe, hSemWr);
-						if (hSemSigToWrite != NULL) CloseHandle(hSemSigToWrite);
-						return 0;
-					},
-					hSemSigToWrite, 0, NULL);
-			}
-
-			//signal to read
+			//if (hImitatioOfWork == NULL) hImitatioOfWork = CreateThread(NULL, 0, ImitatioOfWork, NULL, 0, NULL);
+			//Admin(hImitatioOfWork);
 			if (hThreadReading == NULL) {
 				hThreadReading = CreateThread(NULL,
 					0,
 					[](LPVOID param) -> DWORD {
 						HANDLE hSemRd = (HANDLE)param;
-						if (hSemRd != NULL) WaitForSingleObject(hSemRd, INFINITE);
-						ReadThread(hPipe);
+						DWORD res = NULL;
+						if (hSemRd != NULL) res = WaitForSingleObject(hSemRd, INFINITE);
+						if (res == WAIT_OBJECT_0) {
+							cout << "Get signal to read from client " << endl;
+							Readfrom(hPipe);
+						}
+						else {
+							cout << "No sig get form client to read " << endl;
+						}
 						return 0;
 					}, hSemRd, 0, NULL);
+				if (hThreadReading != NULL) {
+					WaitForSingleObject(hThreadReading, INFINITE);
+				}
+			}
 
+			if (hThreadExit == NULL) {
 				hThreadExit = CreateThread(NULL,
 					0,
 					[](LPVOID param) -> DWORD {
 						HANDLE hSemEx = (HANDLE)param;
-						if (hSemEx != NULL) WaitForSingleObject(hSemEx, INFINITE);
+						DWORD res = NULL;
+						if (hSemEx != NULL) res = WaitForSingleObject(hSemEx, INFINITE);
+						if (res == WAIT_OBJECT_0) {
+							cout << "Get signal to exit from client " << endl;
+						}
+						else {
+							cout << "No sig get form client to exit " << endl;
+						}
 						exit(1);
 						return 0;
 					}, hSemEx, 0, NULL);
 			}
+
 
 			if (hAddtodatabase == NULL) {
 				hAddtodatabase = CreateThread(NULL, 0,
@@ -300,6 +305,11 @@ int main()
 	if (hThreadWriting != NULL) WaitForSingleObject(hThreadWriting, INFINITE);
 	if (hThreadWriting != NULL) CloseHandleThreadWrite = CloseHandle(hThreadWriting);
 	FlushFile = FlushFileBuffers(hPipe);
+	if (!FlushFile) cout << "Problem with flushing " << GetLastError() << endl;
 	disconect_pipe = DisconnectNamedPipe(hPipe);
+	if (hSemRd != NULL) CloseHandle(hSemRd);
+	if (hAccess != NULL) CloseHandle(hAccess);
+	if (hDenied != NULL) CloseHandle(hDenied);
+	if (hSemEx != NULL) CloseHandle(hSemEx);
 	return 0;
 }

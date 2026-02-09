@@ -12,8 +12,7 @@ using std::endl;
 using std::string;
 
 #define SIZEBYTES 17
-BOOL GlobalBwrite = FALSE;
-
+bool GlobalBwrite = FALSE;
 
 struct Client {
 	double balance;
@@ -54,29 +53,30 @@ void ReadFromFile(HANDLE hPipe) {
 		exit(1);
 	}
 }
-BOOL WritetoFile(HANDLE hPipe) {
-	BOOL write_pipe = FALSE;
+bool WritetoFile(HANDLE hPipe) {
+	bool write_pipe = false;
 	DWORD wrote_Bytes = 0;
 	Client k;
 	cout << "Enter your card number " << endl;
 	cin >> k.card_num;
-	k.balance = 100.5;
-	k.pin = 1;
-	if (strlen(k.card_num) != 16) { cout << "Invalid card number " << endl; return FALSE; }
-	else write_pipe = WriteFile(hPipe, &k, sizeof(Client), &wrote_Bytes, NULL);
+	if (strlen(k.card_num) != 16) { cout << "Invalid card number " << endl; return false; }
+	cout << "Enter pincode " << endl;
+	cin >> k.pin;
+	if (k.pin < 100) { cout << "Invalid pin number " << endl; return false; }
+	write_pipe = WriteFile(hPipe, &k, sizeof(Client), &wrote_Bytes, NULL);
 	if (write_pipe) {
-		if (wrote_Bytes < 29) {
+		if (wrote_Bytes < sizeof(Client)) {
 			cout << "Wrote less " << GetLastError() << endl;
-			exit(1);
+			return false;
 		}
 		else {
-			cout << "Number of card: " << k.card_num << endl;
-			return TRUE;
+			cout << "Successfully wrote data to pipe " << wrote_Bytes << endl;
+			return true;
 		}
 	}
 	else {
 		cout << "Error with writting " << GetLastError() << endl;
-		exit(1);
+		return false;
 	}
 }
 void ThreadRead(LPVOID param, HANDLE hSemWr, HANDLE hPipe, HANDLE hSemSigToWrite) {
@@ -96,8 +96,9 @@ void ThreadRead(LPVOID param, HANDLE hSemWr, HANDLE hPipe, HANDLE hSemSigToWrite
 	if (hThread != NULL) CloseHandle(hThread);
 }
 void ThreadWrite(LPVOID param, HANDLE hPipe, HANDLE hSemRd) {
-	long var = 0;
 	DWORD id2 = 0;
+	BOOL semrdsig = FALSE;
+	GlobalBwrite = FALSE;
 	HANDLE hThread1 = CreateThread(NULL, 0,
 		[](LPVOID lpParam) -> DWORD {
 			HANDLE hPipe = (HANDLE)lpParam;
@@ -109,28 +110,40 @@ void ThreadWrite(LPVOID param, HANDLE hPipe, HANDLE hSemRd) {
 	if (hThread1 != NULL) WaitForSingleObject(hThread1, INFINITE);
 	cout << "Thread with id " << id2 << " end" << endl;
 	if (hThread1 != NULL) CloseHandle(hThread1);
-	if (GlobalBwrite) if (hSemRd != NULL) ReleaseSemaphore(hSemRd, 1, NULL);
+	if (GlobalBwrite) {
+		if (hSemRd != NULL) {
+			semrdsig = ReleaseSemaphore(hSemRd, 1, NULL);
+			if (semrdsig == FALSE) {
+				cout << "Didn't sent signl to read " << GetLastError() << endl;
+			}
+			else {
+				cout << "Sent signal to read successfully" << endl;
+			}
+		}
+	}
 }
 
 void Menu() {
 	cout << "======== MENU =======" << endl;
-	cout << "1. Add card to Bank base" << endl;
-	cout << "2. Operation with card" << endl;
+	cout << "1. Operation with card" << endl;
 }
 
 int main()
 {
 	HANDLE hPipe;
 	HANDLE hSemRd;
-	HANDLE hSemSigToWrite;
+	HANDLE hAccess;
+	HANDLE hDenied;
 	HANDLE hSemSigToExite;
-	hSemRd = OpenSemaphoreA(SEMAPHORE_MODIFY_STATE, FALSE, "MySemRd");
+	hSemRd = OpenSemaphoreW(SEMAPHORE_MODIFY_STATE, FALSE, L"Global\\MySemRd");
 	HANDLE hSemWr;
-	hSemWr = OpenSemaphoreA(SYNCHRONIZE, FALSE, "MySemWr");
-	hSemSigToWrite = OpenSemaphoreA(SEMAPHORE_MODIFY_STATE, FALSE, "SemSigToWrite");
-	hSemSigToExite = OpenSemaphoreA(SEMAPHORE_MODIFY_STATE, FALSE, "MySemEx");
-	hPipe = CreateFileA(
-		"\\\\.\\pipe\\Server_pipe"
+	hSemWr = OpenSemaphoreW(SYNCHRONIZE, FALSE, L"Global\\MySemWr");
+	hAccess = OpenSemaphoreW(SYNCHRONIZE, FALSE, L"Global\\SemAccess");
+	hDenied = OpenSemaphoreW(SYNCHRONIZE, FALSE, L"Global\\SemDenied");
+	hSemSigToExite = OpenSemaphoreW(SEMAPHORE_MODIFY_STATE, FALSE, L"Global\\MySemEx");
+
+	hPipe = CreateFileW(
+		L"\\\\.\\pipe\\Server_pipe"
 		, GENERIC_ALL
 		, FILE_SHARE_WRITE | FILE_SHARE_READ
 		, NULL
@@ -144,33 +157,45 @@ int main()
 	else {
 		cout << "========= Client start =========" << endl;
 	}
-
-	DWORD p_input = 20;
-	DWORD p_output = 20;
 	char choose;
 	int i = 0;
+	long SemNum = 0;
+	DWORD approved = NULL;
+	DWORD denied = NULL;
 	while (1) {
 		Menu();
 		cout << "Waiting..." << endl;
 
 		cin >> choose;
 		switch (choose) {
-		case '2':
-			if (hSemSigToWrite) ThreadRead(hPipe, hSemWr, hPipe, hSemSigToWrite);
+
+		case '1':
+			ThreadWrite(hPipe, hPipe, hSemRd);
+			if (hAccess != NULL) approved = WaitForSingleObject(hAccess, 4000);
+			if (approved == WAIT_OBJECT_0) {
+				cout << "Approved " << endl;
+			}
+			if (hDenied != NULL) denied = WaitForSingleObject(hDenied, 4000);
+			if (denied == WAIT_OBJECT_0) {
+				cout << "Denied" << endl;
+			}
 			break;
 
-			//Запись в пайп 
-		case '1': ThreadWrite(hPipe, hPipe, hSemRd);
-			break;
-
-
-		case '3':if (hSemSigToExite != NULL)
-			ReleaseSemaphore(hSemSigToExite, 1, NULL);
+		case '3':
+			if (hSemSigToExite != NULL)
+			{
+				ReleaseSemaphore(hSemSigToExite, 1, NULL);
+			}
+			cout << "Sent signal to exit " << endl;
 			return 0;
 			break;
 
 		}
 	}
 	CloseHandle(hPipe);
+	CloseHandle(hSemRd);
+	CloseHandle(hAccess);
+	CloseHandle(hDenied);
+	CloseHandle(hSemSigToExite);
 	return 0;
 }
