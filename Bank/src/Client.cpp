@@ -3,7 +3,6 @@
 #include <thread>
 #include <chrono>
 #include <functional> 
-#include <mutex>
 #include <string>
 
 using std::cin;
@@ -79,9 +78,9 @@ bool WritetoFile(HANDLE hPipe) {
 		return false;
 	}
 }
-void ThreadRead(LPVOID param, HANDLE hSemWr, HANDLE hPipe, HANDLE hSemSigToWrite) {
+void ThreadRead(LPVOID param, HANDLE hEventWr, HANDLE hPipe, HANDLE hSemSigToWrite) {
 	ReleaseSemaphore(hSemSigToWrite, 1, NULL);
-	if (hSemWr != NULL) WaitForSingleObject(hSemWr, INFINITE);
+	if (hEventWr != NULL) WaitForSingleObject(hEventWr, INFINITE);
 	DWORD id1 = 0;
 	HANDLE hThread = CreateThread(NULL, 0,
 		[](LPVOID lpParam) -> DWORD {
@@ -95,9 +94,9 @@ void ThreadRead(LPVOID param, HANDLE hSemWr, HANDLE hPipe, HANDLE hSemSigToWrite
 	cout << "Thread with id " << id1 << " end" << endl;
 	if (hThread != NULL) CloseHandle(hThread);
 }
-void ThreadWrite(LPVOID param, HANDLE hPipe, HANDLE hSemRd) {
+void ThreadWrite(LPVOID param, HANDLE hPipe, HANDLE hEventRd) {
 	DWORD id2 = 0;
-	BOOL semrdsig = FALSE;
+	BOOL Eventreadsig = FALSE;
 	GlobalBwrite = FALSE;
 	HANDLE hThread1 = CreateThread(NULL, 0,
 		[](LPVOID lpParam) -> DWORD {
@@ -111,9 +110,9 @@ void ThreadWrite(LPVOID param, HANDLE hPipe, HANDLE hSemRd) {
 	cout << "Thread with id " << id2 << " end" << endl;
 	if (hThread1 != NULL) CloseHandle(hThread1);
 	if (GlobalBwrite) {
-		if (hSemRd != NULL) {
-			semrdsig = ReleaseSemaphore(hSemRd, 1, NULL);
-			if (semrdsig == FALSE) {
+		if (hEventRd != NULL) {
+			Eventreadsig = SetEvent(hEventRd);
+			if (Eventreadsig == FALSE) {
 				cout << "Didn't sent signl to read " << GetLastError() << endl;
 			}
 			else {
@@ -131,16 +130,17 @@ void Menu() {
 int main()
 {
 	HANDLE hPipe;
-	HANDLE hSemRd;
-	HANDLE hAccess;
-	HANDLE hDenied;
-	HANDLE hSemSigToExite;
-	hSemRd = OpenSemaphoreW(SEMAPHORE_MODIFY_STATE, FALSE, L"Global\\MySemRd");
-	HANDLE hSemWr;
-	hSemWr = OpenSemaphoreW(SYNCHRONIZE, FALSE, L"Global\\MySemWr");
-	hAccess = OpenSemaphoreW(SYNCHRONIZE, FALSE, L"Global\\SemAccess");
-	hDenied = OpenSemaphoreW(SYNCHRONIZE, FALSE, L"Global\\SemDenied");
-	hSemSigToExite = OpenSemaphoreW(SEMAPHORE_MODIFY_STATE, FALSE, L"Global\\MySemEx");
+	HANDLE hEventRd = NULL;
+	HANDLE hEventWr = NULL;
+	HANDLE hEventEx = NULL;
+	HANDLE hAccess = NULL;
+	HANDLE hDenied = NULL;
+
+	hEventRd = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"EventRd");
+	hEventWr = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hEventWr");
+	hEventEx = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hEventEx");
+	hAccess = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hAccess");
+	hDenied = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hDenied");
 
 	hPipe = CreateFileW(
 		L"\\\\.\\pipe\\Server_pipe"
@@ -170,7 +170,7 @@ int main()
 		switch (choose) {
 
 		case '1':
-			ThreadWrite(hPipe, hPipe, hSemRd);
+			ThreadWrite(hPipe, hPipe, hEventRd);
 			if (hAccess != NULL) approved = WaitForSingleObject(hAccess, 4000);
 			if (approved == WAIT_OBJECT_0) {
 				cout << "Approved " << endl;
@@ -182,9 +182,9 @@ int main()
 			break;
 
 		case '3':
-			if (hSemSigToExite != NULL)
+			if (hEventEx != NULL)
 			{
-				ReleaseSemaphore(hSemSigToExite, 1, NULL);
+				SetEvent(hEventEx);
 			}
 			cout << "Sent signal to exit " << endl;
 			return 0;
@@ -193,9 +193,10 @@ int main()
 		}
 	}
 	CloseHandle(hPipe);
-	CloseHandle(hSemRd);
+	CloseHandle(hEventRd);
+	CloseHandle(hEventWr);
 	CloseHandle(hAccess);
 	CloseHandle(hDenied);
-	CloseHandle(hSemSigToExite);
+	CloseHandle(hEventEx);
 	return 0;
 }

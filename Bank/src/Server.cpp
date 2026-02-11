@@ -3,8 +3,6 @@
 #include <thread>
 #include <chrono>
 #include <functional> 
-#include <mutex>
-#include <semaphore>
 #include <cstring>
 #include <string>
 #include <conio.h>
@@ -15,12 +13,11 @@ using std::cout;
 using std::endl;
 
 HANDLE hPipe = NULL;
-HANDLE hSemWr = NULL;
-HANDLE hSemRd = NULL;
-HANDLE hSemEx = NULL;
+HANDLE hEventWr = NULL;
+HANDLE hEventRd = NULL;
+HANDLE hEventEx = NULL;
 HANDLE hAccess = NULL;
 HANDLE hDenied = NULL;
-
 
 struct Client {
 	double balance;
@@ -119,8 +116,8 @@ void Readfrom(HANDLE hPipe) {
 	bool bAccess = FALSE;
 	Client k1 = { 0.0,000,"0000000000000000" };
 	Client k2 = { 0.0,000,"0000000000000000" };
-	BOOL semAccsig = FALSE;
-	BOOL semDensig = FALSE;
+	BOOL eventAccsig = FALSE;
+	BOOL eventDensig = FALSE;
 	cout << "Reading form pipe..." << endl;
 	read_pipe = ReadFile(hPipe, &k1, sizeof(Client), &read_Bytes, NULL);
 	if (read_pipe) {
@@ -132,8 +129,8 @@ void Readfrom(HANDLE hPipe) {
 		while (ReadFile(hdatabase, &k2, sizeof(Client), &readbytes, NULL)) {
 			if (readbytes == 0) {
 				cout << "Reached end of file and no data find " << endl;
-				semDensig = ReleaseSemaphore(hDenied, 1, NULL);
-				if (semDensig == FALSE) {
+				eventDensig = SetEvent(hDenied);
+				if (eventDensig == FALSE) {
 					cout << "Didn't sent signl to deny " << endl;
 				}
 				else {
@@ -146,8 +143,8 @@ void Readfrom(HANDLE hPipe) {
 				return;
 			}
 			if (strcmp(k1.card_num, k2.card_num) == 0 && k1.pin == k2.pin) {
-				semAccsig = ReleaseSemaphore(hAccess, 1, NULL);
-				if (semAccsig == FALSE) {
+				eventAccsig = SetEvent(hAccess);
+				if (eventAccsig == FALSE) {
 					cout << "Didn't sent signl to access " << endl;
 				}
 				else {
@@ -180,7 +177,7 @@ void WriteThread(HANDLE hPipe, HANDLE hSemWr) {
 	std::cout << "Thread with id " << id << " end" << std::endl;
 	if (hThread != NULL) CloseHandle(hThread);
 
-	if (hSemWr != NULL) { ReleaseSemaphore(hSemWr, 1, NULL); }
+	if (hEventWr != NULL) { SetEvent(hEventWr); }
 }
 
 DWORD ImitatioOfWork(LPVOID) {
@@ -203,7 +200,6 @@ void Admin(HANDLE hImitatioOfWork) {
 
 int main()
 {
-	int i = 0;
 	BOOL connect_pipe;
 	BOOL FlushFile;
 	BOOL disconect_pipe;
@@ -219,11 +215,12 @@ int main()
 
 
 	//initialize
-	hSemWr = CreateSemaphoreW(NULL, 0, 1, L"Global\\MySemWr");
-	hSemRd = CreateSemaphoreW(NULL, 0, 1, L"Global\\MySemRd");
-	hSemEx = CreateSemaphoreW(NULL, 0, 1, L"Global\\MySemEx");
-	hAccess = CreateSemaphoreW(NULL, 0, 1, L"Global\\SemAccess");
-	hDenied = CreateSemaphoreW(NULL, 0, 1, L"Global\\SemDenied");
+
+	hEventWr = CreateEvent(NULL, FALSE, FALSE, L"EventWr");
+	hEventRd = CreateEvent(NULL, FALSE, FALSE, L"EventRd");
+	hEventEx = CreateEvent(NULL, FALSE, FALSE, L"hEventEx");
+	hAccess = CreateEvent(NULL, FALSE, FALSE, L"hAccess");
+	hDenied = CreateEvent(NULL, FALSE, FALSE, L"hDenied");
 	hPipe = CreateNamedPipeW(
 		L"\\\\.\\pipe\\Server_pipe"
 		, PIPE_ACCESS_DUPLEX
@@ -249,18 +246,15 @@ int main()
 				hThreadReading = CreateThread(NULL,
 					0,
 					[](LPVOID param) -> DWORD {
-						HANDLE hSemRd = (HANDLE)param;
+						HANDLE hEventRd = (HANDLE)param;
 						DWORD res = NULL;
-						if (hSemRd != NULL) res = WaitForSingleObject(hSemRd, INFINITE);
+						if (hEventRd != NULL) res = WaitForSingleObject(hEventRd, INFINITE);
 						if (res == WAIT_OBJECT_0) {
 							cout << "Get signal to read from client " << endl;
 							Readfrom(hPipe);
 						}
-						else {
-							cout << "No sig get form client to read " << endl;
-						}
 						return 0;
-					}, hSemRd, 0, NULL);
+					}, hEventRd, 0, NULL);
 				if (hThreadReading != NULL) {
 					WaitForSingleObject(hThreadReading, INFINITE);
 				}
@@ -270,9 +264,9 @@ int main()
 				hThreadExit = CreateThread(NULL,
 					0,
 					[](LPVOID param) -> DWORD {
-						HANDLE hSemEx = (HANDLE)param;
+						HANDLE hEventEx = (HANDLE)param;
 						DWORD res = NULL;
-						if (hSemEx != NULL) res = WaitForSingleObject(hSemEx, INFINITE);
+						if (hEventEx != NULL) res = WaitForSingleObject(hEventEx, INFINITE);
 						if (res == WAIT_OBJECT_0) {
 							cout << "Get signal to exit from client " << endl;
 						}
@@ -281,7 +275,7 @@ int main()
 						}
 						exit(1);
 						return 0;
-					}, hSemEx, 0, NULL);
+					}, hEventEx, 0, NULL);
 			}
 
 
@@ -307,9 +301,13 @@ int main()
 	FlushFile = FlushFileBuffers(hPipe);
 	if (!FlushFile) cout << "Problem with flushing " << GetLastError() << endl;
 	disconect_pipe = DisconnectNamedPipe(hPipe);
-	if (hSemRd != NULL) CloseHandle(hSemRd);
+
+
+
+	if (hEventWr != NULL) CloseHandle(hEventWr);
+	if (hEventRd != NULL) CloseHandle(hEventRd);
+	if (hEventEx != NULL) CloseHandle(hEventEx);
 	if (hAccess != NULL) CloseHandle(hAccess);
 	if (hDenied != NULL) CloseHandle(hDenied);
-	if (hSemEx != NULL) CloseHandle(hSemEx);
 	return 0;
 }
