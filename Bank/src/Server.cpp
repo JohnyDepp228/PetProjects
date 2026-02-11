@@ -242,7 +242,7 @@ int main()
 		while (1) {
 			//if (hImitatioOfWork == NULL) hImitatioOfWork = CreateThread(NULL, 0, ImitatioOfWork, NULL, 0, NULL);
 			//Admin(hImitatioOfWork);
-			if (hThreadReading == NULL) {
+			if (hThreadReading == NULL) {//тут ошибка с логикой 
 				hThreadReading = CreateThread(NULL,
 					0,
 					[](LPVOID param) -> DWORD {
@@ -255,9 +255,6 @@ int main()
 						}
 						return 0;
 					}, hEventRd, 0, NULL);
-				if (hThreadReading != NULL) {
-					WaitForSingleObject(hThreadReading, INFINITE);
-				}
 			}
 
 			if (hThreadExit == NULL) {
@@ -297,11 +294,15 @@ int main()
 	if (hImitatioOfWork != NULL) WaitForSingleObject(hImitatioOfWork, INFINITE);
 	if (hAddtodatabase != NULL) WaitForSingleObject(hAddtodatabase, INFINITE);
 	if (hThreadWriting != NULL) WaitForSingleObject(hThreadWriting, INFINITE);
+
 	if (hThreadWriting != NULL) CloseHandleThreadWrite = CloseHandle(hThreadWriting);
 	FlushFile = FlushFileBuffers(hPipe);
 	if (!FlushFile) cout << "Problem with flushing " << GetLastError() << endl;
 	disconect_pipe = DisconnectNamedPipe(hPipe);
-
+	if (hThreadReading != NULL) {
+		WaitForSingleObject(hThreadReading, INFINITE);
+		CloseHandle(hThreadReading);
+	}
 
 
 	if (hEventWr != NULL) CloseHandle(hEventWr);
