@@ -1,24 +1,21 @@
-#include <iostream>
-#include <windows.h>
-#include <thread>
-#include <chrono>
-#include <functional> 
-#include <cstring>
-#include <string>
-#include <conio.h>
+#include "Libs.h"
 
-#define FILENAME "C:/Users/Boss/Desktop/BankProject/database.txt"
-#define SIZEBYTES 17
-using std::cout;
-using std::endl;
-
-HANDLE hPipe = NULL;
-HANDLE hEventWr = NULL;
-HANDLE hEventRd = NULL;
-HANDLE hEventEx = NULL;
-HANDLE hAccess = NULL;
-HANDLE hDenied = NULL;
-
+struct Handles {
+	HANDLE hThreadReading = NULL;
+	HANDLE hThreadWriting = NULL;
+	HANDLE hThreadExit = NULL;
+	HANDLE hAddtodatabase = NULL;
+	HANDLE hImitatioOfWork = NULL;
+	HANDLE hAdmin = NULL;
+};
+struct EventHandles {
+	HANDLE hPipe = NULL;
+	HANDLE hEventWr = NULL;
+	HANDLE hEventRd = NULL;
+	HANDLE hEventEx = NULL;
+	HANDLE hAccess = NULL;
+	HANDLE hDenied = NULL;
+};
 struct Client {
 	double balance;
 	unsigned int pin;
@@ -52,6 +49,7 @@ BOOL WriteToDatabase() {
 	CloseHandle(hdatabase);
 	return writedata;
 }
+
 BOOL WriteToDatabase(const Client& k) {
 	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	SetFilePointer(hdatabase, 0, NULL, FILE_END);
@@ -69,6 +67,7 @@ BOOL WriteToDatabase(const Client& k) {
 	if (hdatabase != NULL) CloseHandle(hdatabase);
 	return writedata;
 }
+
 BOOL ReadFromDatabase(Client& k) {
 	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
@@ -87,14 +86,14 @@ BOOL ReadFromDatabase(Client& k) {
 	return readdata;
 }
 //чтение из базыданных
-void WriteTo(HANDLE hPipe) {
+void WriteTo(const EventHandles& ev) {
 	BOOL write_pipe;
 	DWORD written_Bytes = 0;
 	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	char card_num[SIZEBYTES] = { 0 };
 	Client temp;
 	ReadFromDatabase(temp);
-	write_pipe = WriteFile(hPipe, &temp, sizeof(Client), &written_Bytes, NULL);
+	write_pipe = WriteFile(ev.hPipe, &temp, sizeof(Client), &written_Bytes, NULL);
 	if (written_Bytes != sizeof(Client)) {
 		std::cout << "Written less bytes " << written_Bytes << std::endl;
 		CloseHandle(hdatabase);
@@ -103,7 +102,7 @@ void WriteTo(HANDLE hPipe) {
 	CloseHandle(hdatabase);
 }
 //Проверка доступа + чтение
-void Readfrom(HANDLE hPipe) {
+void Readfrom(EventHandles& ev) {
 	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
 		cout << "Invalid file handle Read" << GetLastError() << endl;
@@ -119,17 +118,18 @@ void Readfrom(HANDLE hPipe) {
 	BOOL eventAccsig = FALSE;
 	BOOL eventDensig = FALSE;
 	cout << "Reading form pipe..." << endl;
-	read_pipe = ReadFile(hPipe, &k1, sizeof(Client), &read_Bytes, NULL);
+	read_pipe = ReadFile(ev.hPipe, &k1, sizeof(Client), &read_Bytes, NULL);
 	if (read_pipe) {
 		if (read_Bytes != sizeof(Client)) {
 			std::cout << "Read less bytes " << read_Bytes << " " << GetLastError() << std::endl;
+			if (hdatabase != NULL) CloseHandle(hdatabase);
 			exit(1);
 		}
 		SetFilePointer(hdatabase, 0, NULL, FILE_BEGIN);
 		while (ReadFile(hdatabase, &k2, sizeof(Client), &readbytes, NULL)) {
 			if (readbytes == 0) {
 				cout << "Reached end of file and no data find " << endl;
-				eventDensig = SetEvent(hDenied);
+				eventDensig = SetEvent(ev.hDenied);
 				if (eventDensig == FALSE) {
 					cout << "Didn't sent signl to deny " << endl;
 				}
@@ -140,10 +140,11 @@ void Readfrom(HANDLE hPipe) {
 			}
 			if (readbytes < sizeof(Client)) {
 				cout << "Read less than requird " << GetLastError() << endl;
+				if (hdatabase != NULL) CloseHandle(hdatabase);
 				return;
 			}
 			if (strcmp(k1.card_num, k2.card_num) == 0 && k1.pin == k2.pin) {
-				eventAccsig = SetEvent(hAccess);
+				eventAccsig = SetEvent(ev.hAccess);
 				if (eventAccsig == FALSE) {
 					cout << "Didn't sent signl to access " << endl;
 				}
@@ -159,16 +160,50 @@ void Readfrom(HANDLE hPipe) {
 	if (hdatabase != NULL) CloseHandle(hdatabase);
 }
 
-void WriteThread(HANDLE hPipe, HANDLE hSemWr) {
+void ExitTread(const EventHandles& temp, Handles& h) {
+	EventHandles* ev = new EventHandles;
+	ev->hAccess = temp.hAccess;
+	ev->hPipe = temp.hPipe;
+	ev->hDenied = temp.hDenied;
+	ev->hEventEx = temp.hEventEx;
+	ev->hEventRd = temp.hEventRd;
+	ev->hEventWr = temp.hEventWr;
+	if (h.hThreadExit == NULL) {
+		h.hThreadExit = CreateThread(NULL,
+			0,
+			[](LPVOID param) -> DWORD {
+				EventHandles* ev1 = (EventHandles*)param;
+				DWORD res = NULL;
+				if (ev1->hEventEx != NULL) res = WaitForSingleObject(ev1->hEventEx, INFINITE);
+				if (res == WAIT_OBJECT_0) {
+					cout << "Get signal to exit from client " << endl;
+				}
+				else {
+					cout << "No sig get form client to exit " << endl;
+				}
+				exit(1);
+				return 0;
+			}, ev, 0, NULL);
+	}
+}
+
+void WriteThread(EventHandles& temp) {
 	DWORD id;
+	EventHandles* ev = new EventHandles;
+	ev->hAccess = temp.hAccess;
+	ev->hPipe = temp.hPipe;
+	ev->hDenied = temp.hDenied;
+	ev->hEventEx = temp.hEventEx;
+	ev->hEventRd = temp.hEventRd;
+	ev->hEventWr = temp.hEventWr;
 	HANDLE hThread = CreateThread(
 		NULL,
 		0,
 		[](LPVOID param) -> DWORD {
-			HANDLE hPipe = (HANDLE)param;
-			WriteTo(hPipe);
+			EventHandles* ev1 = (EventHandles*)param;
+			WriteTo(*ev1);
 			return 0;
-		}, hPipe, 0, &id);
+		}, ev, 0, &id);
 	if (hThread == NULL) { std::cout << "Error with thread " << GetLastError() << std::endl; }
 
 	std::cout << "Thread with id " << id << " start writing" << std::endl;
@@ -177,51 +212,66 @@ void WriteThread(HANDLE hPipe, HANDLE hSemWr) {
 	std::cout << "Thread with id " << id << " end" << std::endl;
 	if (hThread != NULL) CloseHandle(hThread);
 
-	if (hEventWr != NULL) { SetEvent(hEventWr); }
+	if (temp.hEventWr != NULL) { SetEvent(temp.hEventWr); }
+}
+
+void ReadThread(Handles& h, const EventHandles& temp) {
+	EventHandles* ev = new EventHandles;
+	ev->hAccess = temp.hAccess;
+	ev->hPipe = temp.hPipe;
+	ev->hDenied = temp.hDenied;
+	ev->hEventEx = temp.hEventEx;
+	ev->hEventRd = temp.hEventRd;
+	ev->hEventWr = temp.hEventWr;
+	if (h.hThreadReading == NULL) {
+		h.hThreadReading = CreateThread(NULL,
+			0,
+			[](LPVOID param) -> DWORD {
+				EventHandles* ev1 = (EventHandles*)param;
+				DWORD res = NULL;
+				while (1) {
+					if (ev1->hEventRd != NULL) res = WaitForSingleObject(ev1->hEventRd, INFINITE);
+					if (res == WAIT_OBJECT_0) {
+						cout << "Get signal to read from client " << endl;
+						Readfrom(*ev1);
+					}
+				}
+				return 0;	}
+		, ev, 0, NULL);
+	}
 }
 
 DWORD ImitatioOfWork(LPVOID) {
 	while (1) {
-		Sleep(500);
+		Sleep(700);
 		std::cout << "Working..." << std::endl;
 	}
 }
 
 void Admin(HANDLE hImitatioOfWork) {
 	char code;
-	code = _getch();
-	if (code == '3')
+	if (_kbhit())
 	{
-		if (hImitatioOfWork != NULL) SuspendThread(hImitatioOfWork);
-		WriteToDatabase();
-		if (hImitatioOfWork != NULL) ResumeThread(hImitatioOfWork);
+		code = _getch();
+		if (code == '3')
+		{
+			if (hImitatioOfWork != NULL) SuspendThread(hImitatioOfWork);
+			WriteToDatabase();
+			if (hImitatioOfWork != NULL) ResumeThread(hImitatioOfWork);
+		}
 	}
 }
 
-int main()
-{
+bool Initialize(EventHandles& ev) {
 	BOOL connect_pipe;
-	BOOL FlushFile;
-	BOOL disconect_pipe;
-	BOOL CloseHandleThreadWrite;
 	DWORD p_input = sizeof(Client);
 	DWORD p_output = sizeof(Client);
-	HANDLE hThreadReading = NULL;
-	HANDLE hThreadWriting = NULL;
-	HANDLE hThreadExit = NULL;
-	HANDLE hAddtodatabase = NULL;
-	HANDLE hImitatioOfWork = NULL;
-	HANDLE hAdmin = NULL;
-
-
-	//initialize
-
-	hEventWr = CreateEvent(NULL, FALSE, FALSE, L"EventWr");
-	hEventRd = CreateEvent(NULL, FALSE, FALSE, L"EventRd");
-	hEventEx = CreateEvent(NULL, FALSE, FALSE, L"hEventEx");
-	hAccess = CreateEvent(NULL, FALSE, FALSE, L"hAccess");
-	hDenied = CreateEvent(NULL, FALSE, FALSE, L"hDenied");
-	hPipe = CreateNamedPipeW(
+	ev.hEventWr = CreateEvent(NULL, FALSE, FALSE, L"EventWr");
+	ev.hEventRd = CreateEvent(NULL, FALSE, FALSE, L"EventRd");
+	ev.hEventEx = CreateEvent(NULL, FALSE, FALSE, L"hEventEx");
+	ev.hAccess = CreateEvent(NULL, FALSE, FALSE, L"hAccess");
+	ev.hDenied = CreateEvent(NULL, FALSE, FALSE, L"hDenied");
+	ev.hPipe = CreateNamedPipeW(
 		L"\\\\.\\pipe\\Server_pipe"
 		, PIPE_ACCESS_DUPLEX
 		, PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_ACCEPT_REMOTE_CLIENTS
@@ -230,85 +280,109 @@ int main()
 		, p_input
 		, NMPWAIT_WAIT_FOREVER
 		, NULL);
-	if (hPipe == INVALID_HANDLE_VALUE) {
+	if (ev.hPipe == INVALID_HANDLE_VALUE) {
 		std::cout << "Error with pipe " << GetLastError() << std::endl;
 		return 0;
 	}
 	else {
 		std::cout << "========= Server start =========" << std::endl;
 	}
-	connect_pipe = ConnectNamedPipe(hPipe, NULL);
+	connect_pipe = ConnectNamedPipe(ev.hPipe, NULL);
+	return connect_pipe;
+}
+void CloseHandles(Handles& h, EventHandles& ev) {
+	bool FlushFile;
+	bool disconect_pipe;
+
+	bool CloseHandleThreadWrite = FALSE;
+	bool CloseHandleAddtodatabase = FALSE;
+	bool CloseHandleImitatioOfWork = FALSE;
+	bool CloseHandleThreadReading = FALSE;
+	bool CloseHandleAdmin = FALSE;
+	bool CloseHandleThreadExit = FALSE;
+
+	if (h.hImitatioOfWork != NULL) WaitForSingleObject(h.hImitatioOfWork, INFINITE);
+	if (h.hAddtodatabase != NULL) WaitForSingleObject(h.hAddtodatabase, INFINITE);
+	if (h.hThreadWriting != NULL) WaitForSingleObject(h.hThreadWriting, INFINITE);
+	if (h.hThreadReading != NULL) WaitForSingleObject(h.hThreadReading, INFINITE);
+
+	if (h.hThreadWriting != NULL) {
+		CloseHandleThreadWrite = CloseHandle(h.hThreadWriting);
+		if (!CloseHandleThreadWrite) {
+			cout << "Can't close handle of hThreadWriting " << GetLastError() << endl;
+		}
+	}
+	if (h.hAddtodatabase != NULL) {
+		CloseHandleAddtodatabase = CloseHandle(h.hAddtodatabase);
+		if (!CloseHandleAddtodatabase) {
+			cout << "Can't close handle of hAddtodatabase " << GetLastError() << endl;
+		}
+	}
+
+	if (h.hImitatioOfWork != NULL) {
+		CloseHandleImitatioOfWork = CloseHandle(h.hImitatioOfWork);
+		if (!CloseHandleImitatioOfWork) {
+			cout << "Can't close handle of hImitatioOfWork " << GetLastError() << endl;
+		}
+	}
+
+	if (h.hThreadReading != NULL) {
+		CloseHandleThreadReading = CloseHandle(h.hThreadReading);
+		if (!CloseHandleThreadReading) {
+			cout << "Can't close handle of hThreadReading " << GetLastError() << endl;
+		}
+	}
+
+	if (h.hAdmin != NULL) {
+		CloseHandleAdmin = CloseHandle(h.hAdmin);
+		if (!CloseHandleAdmin) {
+			cout << "Can't close handle of hAdmin " << GetLastError() << endl;
+		}
+	}
+
+	if (h.hThreadExit != NULL) {
+		CloseHandleThreadExit = CloseHandle(h.hThreadExit);
+		if (!CloseHandleThreadExit) {
+			cout << "Can't close handle of hThreadExit " << GetLastError() << endl;
+		}
+	}
+
+	FlushFile = FlushFileBuffers(ev.hPipe);
+	if (!FlushFile) cout << "Problem with flushing " << GetLastError() << endl;
+	disconect_pipe = DisconnectNamedPipe(ev.hPipe);
+	if (!disconect_pipe) {
+		cout << "Can't disconnect named pipe " << GetLastError() << endl;
+	}
+
+	if (ev.hPipe != NULL) CloseHandle(ev.hPipe);
+	if (ev.hEventWr != NULL) CloseHandle(ev.hEventWr);
+	if (ev.hEventRd != NULL) CloseHandle(ev.hEventRd);
+	if (ev.hEventEx != NULL) CloseHandle(ev.hEventEx);
+	if (ev.hAccess != NULL) CloseHandle(ev.hAccess);
+	if (ev.hDenied != NULL) CloseHandle(ev.hDenied);
+}
+
+int main()
+{
+	BOOL connect_pipe;
+	BOOL FlushFile;
+	BOOL disconect_pipe;
+	BOOL CloseHandleThreadWrite;
+	Handles h;
+	EventHandles ev;
+	connect_pipe = Initialize(ev);
 	if (connect_pipe) {
+		ReadThread(h, ev);
+		ExitTread(ev, h);
 		while (1) {
-			//if (hImitatioOfWork == NULL) hImitatioOfWork = CreateThread(NULL, 0, ImitatioOfWork, NULL, 0, NULL);
-			//Admin(hImitatioOfWork);
-			if (hThreadReading == NULL) {//тут ошибка с логикой 
-				hThreadReading = CreateThread(NULL,
-					0,
-					[](LPVOID param) -> DWORD {
-						HANDLE hEventRd = (HANDLE)param;
-						DWORD res = NULL;
-						if (hEventRd != NULL) res = WaitForSingleObject(hEventRd, INFINITE);
-						if (res == WAIT_OBJECT_0) {
-							cout << "Get signal to read from client " << endl;
-							Readfrom(hPipe);
-						}
-						return 0;
-					}, hEventRd, 0, NULL);
-			}
-
-			if (hThreadExit == NULL) {
-				hThreadExit = CreateThread(NULL,
-					0,
-					[](LPVOID param) -> DWORD {
-						HANDLE hEventEx = (HANDLE)param;
-						DWORD res = NULL;
-						if (hEventEx != NULL) res = WaitForSingleObject(hEventEx, INFINITE);
-						if (res == WAIT_OBJECT_0) {
-							cout << "Get signal to exit from client " << endl;
-						}
-						else {
-							cout << "No sig get form client to exit " << endl;
-						}
-						exit(1);
-						return 0;
-					}, hEventEx, 0, NULL);
-			}
-
-
-			if (hAddtodatabase == NULL) {
-				hAddtodatabase = CreateThread(NULL, 0,
-					[](LPVOID)-> DWORD {
-						char code;
-						std::cin >> code;
-						if (code == '3') { WriteToDatabase(); }
-						return 0;
-					}, NULL, 0, NULL);
-			}
-
+			if (h.hImitatioOfWork == NULL) h.hImitatioOfWork = CreateThread(NULL, 0, ImitatioOfWork, NULL, 0, NULL);
+			Admin(h.hImitatioOfWork);
 		}
 	}
 	else {
 		std::cout << "Error with connecting to PIPE " << GetLastError() << std::endl;
 	}
-	if (hImitatioOfWork != NULL) WaitForSingleObject(hImitatioOfWork, INFINITE);
-	if (hAddtodatabase != NULL) WaitForSingleObject(hAddtodatabase, INFINITE);
-	if (hThreadWriting != NULL) WaitForSingleObject(hThreadWriting, INFINITE);
 
-	if (hThreadWriting != NULL) CloseHandleThreadWrite = CloseHandle(hThreadWriting);
-	FlushFile = FlushFileBuffers(hPipe);
-	if (!FlushFile) cout << "Problem with flushing " << GetLastError() << endl;
-	disconect_pipe = DisconnectNamedPipe(hPipe);
-	if (hThreadReading != NULL) {
-		WaitForSingleObject(hThreadReading, INFINITE);
-		CloseHandle(hThreadReading);
-	}
-
-
-	if (hEventWr != NULL) CloseHandle(hEventWr);
-	if (hEventRd != NULL) CloseHandle(hEventRd);
-	if (hEventEx != NULL) CloseHandle(hEventEx);
-	if (hAccess != NULL) CloseHandle(hAccess);
-	if (hDenied != NULL) CloseHandle(hDenied);
+	CloseHandles(h, ev);
 	return 0;
 }

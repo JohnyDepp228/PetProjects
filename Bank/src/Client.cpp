@@ -1,22 +1,20 @@
-#include <iostream>
-#include <windows.h>
-#include <thread>
-#include <chrono>
-#include <functional> 
-#include <string>
+#include "Libs.h"
 
-using std::cin;
-using std::cout;
-using std::endl;
-using std::string;
-
-#define SIZEBYTES 17
 bool GlobalBwrite = FALSE;
 
 struct Client {
 	double balance;
 	int pin;
 	char card_num[17];
+};
+
+struct Handles {
+	HANDLE hPipe = NULL;
+	HANDLE hEventRd = NULL;
+	HANDLE hEventWr = NULL;
+	HANDLE hEventEx = NULL;
+	HANDLE hAccess = NULL;
+	HANDLE hDenied = NULL;
 };
 
 
@@ -127,22 +125,15 @@ void Menu() {
 	cout << "1. Operation with card" << endl;
 }
 
-int main()
-{
-	HANDLE hPipe;
-	HANDLE hEventRd = NULL;
-	HANDLE hEventWr = NULL;
-	HANDLE hEventEx = NULL;
-	HANDLE hAccess = NULL;
-	HANDLE hDenied = NULL;
 
-	hEventRd = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"EventRd");
-	hEventWr = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hEventWr");
-	hEventEx = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hEventEx");
-	hAccess = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hAccess");
-	hDenied = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hDenied");
+bool Initialize(Handles& h) {
+	h.hEventRd = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"EventRd");
+	h.hEventWr = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hEventWr");
+	h.hEventEx = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hEventEx");
+	h.hAccess = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hAccess");
+	h.hDenied = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hDenied");
 
-	hPipe = CreateFileW(
+	h.hPipe = CreateFileW(
 		L"\\\\.\\pipe\\Server_pipe"
 		, GENERIC_ALL
 		, FILE_SHARE_WRITE | FILE_SHARE_READ
@@ -150,16 +141,32 @@ int main()
 		, OPEN_EXISTING
 		, FILE_ATTRIBUTE_NORMAL
 		, NULL);
-	if (hPipe == INVALID_HANDLE_VALUE) {
+	if (h.hPipe == INVALID_HANDLE_VALUE) {
 		cout << "Error with connecting to pipe " << GetLastError() << endl;
 		exit(1);
 	}
 	else {
 		cout << "========= Client start =========" << endl;
 	}
+}
+
+void CloseHandles(Handles& h) {
+	CloseHandle(h.hPipe);
+	CloseHandle(h.hEventRd);
+	CloseHandle(h.hEventWr);
+	CloseHandle(h.hAccess);
+	CloseHandle(h.hDenied);
+	CloseHandle(h.hEventEx);
+}
+
+
+int main()
+{
+	Handles h;
+	Initialize(h);
+
+
 	char choose;
-	int i = 0;
-	long SemNum = 0;
 	DWORD approved = NULL;
 	DWORD denied = NULL;
 	while (1) {
@@ -170,21 +177,21 @@ int main()
 		switch (choose) {
 
 		case '1':
-			ThreadWrite(hPipe, hPipe, hEventRd);
-			if (hAccess != NULL) approved = WaitForSingleObject(hAccess, 4000);
+			ThreadWrite(h.hPipe, h.hPipe, h.hEventRd);
+			if (h.hAccess != NULL) approved = WaitForSingleObject(h.hAccess, 2000);
 			if (approved == WAIT_OBJECT_0) {
 				cout << "Approved " << endl;
 			}
-			if (hDenied != NULL) denied = WaitForSingleObject(hDenied, 4000);
+			if (h.hDenied != NULL) denied = WaitForSingleObject(h.hDenied, 2000);
 			if (denied == WAIT_OBJECT_0) {
 				cout << "Denied" << endl;
 			}
 			break;
 
 		case '3':
-			if (hEventEx != NULL)
+			if (h.hEventEx != NULL)
 			{
-				SetEvent(hEventEx);
+				SetEvent(h.hEventEx);
 			}
 			cout << "Sent signal to exit " << endl;
 			return 0;
@@ -192,11 +199,8 @@ int main()
 
 		}
 	}
-	CloseHandle(hPipe);
-	CloseHandle(hEventRd);
-	CloseHandle(hEventWr);
-	CloseHandle(hAccess);
-	CloseHandle(hDenied);
-	CloseHandle(hEventEx);
+
+
+	CloseHandles(h);
 	return 0;
 }
