@@ -12,7 +12,7 @@ using std::endl;
 using std::string;
 
 #define SIZEBYTES 17
-bool GlobalBwrite = FALSE;
+bool GlobalBwrite = FALSE;//убрать
 
 struct Client {
 	double balance;
@@ -27,6 +27,7 @@ struct Handles {
 	HANDLE hEventEx = NULL;
 	HANDLE hAccess = NULL;
 	HANDLE hDenied = NULL;
+	HANDLE hEventAfterOperations = NULL;
 };
 
 
@@ -143,6 +144,7 @@ void Initialize(Handles& h) {
 	h.hEventEx = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hEventEx");
 	h.hAccess = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hAccess");
 	h.hDenied = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hDenied");
+	h.hEventAfterOperations = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hEventAfterOperations");
 
 	h.hPipe = CreateFileW(
 		L"\\\\.\\pipe\\Server_pipe"
@@ -170,9 +172,11 @@ void CloseHandles(Handles& h) {
 	CloseHandle(h.hEventEx);
 }
 
-void Operations(Client& k) {
+void Operations(Client& k, const Handles& h) {
 	char ch;
 	int money_amount;
+	DWORD wroteBytes = 0;
+	bool EventAfterOperationssig = false;
 	while (1) {
 		cout << "Choose operation: " << endl;
 		cout << "1. Withdraw money from the card " << endl;
@@ -193,6 +197,21 @@ void Operations(Client& k) {
 				cout << "Success" << endl;
 				cout << "New balance: " << k.balance << endl;
 			}
+			WriteFile(h.hPipe, &k, sizeof(Client), &wroteBytes, NULL);
+			if (wroteBytes != sizeof(Client)) {
+				cout << "Error with writing after operations " << GetLastError() << endl;
+				return;
+			}
+			else {
+				cout << "Wrote struct succesfully after operations " << endl;
+			}
+			EventAfterOperationssig = SetEvent(h.hEventAfterOperations);
+			if (EventAfterOperationssig == FALSE) {
+				cout << "Didn't sent signl to AfterOperationssig " << GetLastError() << endl;
+			}
+			else {
+				cout << "Sent signal to AfterOperationssig successfully" << endl;
+			}
 			break;
 		case '2':
 			cout << "Enter amout of money you want to put: ";
@@ -201,6 +220,21 @@ void Operations(Client& k) {
 			k.balance += money_amount;
 			cout << "Success" << endl;
 			cout << "New balance: " << k.balance << endl;
+			WriteFile(h.hPipe, &k, sizeof(Client), &wroteBytes, NULL);
+			if (wroteBytes != sizeof(Client)) {
+				cout << "Error with writing after operations " << GetLastError() << endl;
+				return;
+			}
+			else {
+				cout << "Wrote struct succesfully after operations " << endl;
+			}
+			EventAfterOperationssig = SetEvent(h.hEventAfterOperations);
+			if (EventAfterOperationssig == FALSE) {
+				cout << "Didn't sent signl to AfterOperationssig " << GetLastError() << endl;
+			}
+			else {
+				cout << "Sent signal to AfterOperationssig successfully" << endl;
+			}
 			break;
 		case '3':
 			cout << "Balance on card: " << k.balance << endl; break;
@@ -249,7 +283,8 @@ int main()
 				cout << "Denied" << endl;
 			}
 			if (access) {
-				Operations(k);
+				Operations(k, h);
+
 			}
 			break;
 

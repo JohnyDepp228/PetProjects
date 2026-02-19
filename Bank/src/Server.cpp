@@ -9,10 +9,12 @@ struct Handles {
 	HANDLE hAdmin = NULL;
 };
 struct EventHandles {
+	unsigned int index = 0;
 	HANDLE hPipe = NULL;
 	HANDLE hEventWr = NULL;
 	HANDLE hEventRd = NULL;
 	HANDLE hEventEx = NULL;
+	HANDLE hEventAfterOperations = NULL;
 	HANDLE hAccess = NULL;
 	HANDLE hDenied = NULL;
 };
@@ -21,8 +23,6 @@ struct Client {
 	unsigned int pin;
 	char card_num[17];
 };
-
-
 BOOL WriteToDatabaseCard() {
 	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
@@ -50,9 +50,11 @@ BOOL WriteToDatabaseCard() {
 	return writedata;
 }
 
-BOOL WriteToDatabase(const Client& k) {
+BOOL WriteToDatabase(const Client& k, const unsigned int& index) {
 	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-	SetFilePointer(hdatabase, 0, NULL, FILE_END);
+	unsigned int pos = index * sizeof(Client);
+	cout << "Index to write: " << index << endl;
+	SetFilePointer(hdatabase, pos, NULL, FILE_BEGIN);
 	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
 		cout << "Invalid file handle Write" << endl;
 		if (hdatabase != NULL) CloseHandle(hdatabase);
@@ -160,13 +162,14 @@ void Readfrom(EventHandles& ev) {
 				bAccess = TRUE;
 				break;
 			}
+			ev.index++;
 		}
 	}
 	if (!bAccess) cout << "Trying to access" << endl;
 	if (hdatabase != NULL) CloseHandle(hdatabase);
 }
 
-void ExitTread(const EventHandles& temp, Handles& h) {
+void ExitTread(const EventHandles& temp, Handles& h) {//утечка изза exit
 	EventHandles* ev = new EventHandles;
 	ev->hAccess = temp.hAccess;
 	ev->hPipe = temp.hPipe;
@@ -193,7 +196,7 @@ void ExitTread(const EventHandles& temp, Handles& h) {
 	}
 }
 
-void WriteThread(EventHandles& temp) {
+void WriteThread(EventHandles& temp, Handles& h) {
 	DWORD id;
 	EventHandles* ev = new EventHandles;
 	ev->hAccess = temp.hAccess;
@@ -202,26 +205,37 @@ void WriteThread(EventHandles& temp) {
 	ev->hEventEx = temp.hEventEx;
 	ev->hEventRd = temp.hEventRd;
 	ev->hEventWr = temp.hEventWr;
-	HANDLE hThread = CreateThread(
+	ev->hEventAfterOperations = temp.hEventAfterOperations;
+	ev->index = temp.index;
+	h.hThreadWriting = CreateThread(
 		NULL,
 		0,
 		[](LPVOID param) -> DWORD {
+			DWORD readbytes = 0;
+			bool readfile;
 			EventHandles* ev1 = (EventHandles*)param;
-			WriteTo(*ev1);
+			Client temp_k = { 0.0,000,"0000000000000000" };
+			while (1) {
+				WaitForSingleObject(ev1->hEventAfterOperations, INFINITE);
+				readfile = ReadFile(ev1->hPipe, &temp_k, sizeof(Client), &readbytes, NULL);
+				if (readfile) {
+					if (readbytes != sizeof(Client)) {
+						cout << "Error with reading from pipe from client after operations " << GetLastError() << endl;
+						exit(0);
+					}
+					else {
+						WriteToDatabase(temp_k, ev1->index);
+					}
+				}
+				else {
+					cout << "Can't read from pipe from client after operations " << GetLastError() << endl;
+				}
+			}
 			return 0;
 		}, ev, 0, &id);
-	if (hThread == NULL) { std::cout << "Error with thread " << GetLastError() << std::endl; }
-
-	std::cout << "Thread with id " << id << " start writing" << std::endl;
-
-	if (hThread != NULL) WaitForSingleObject(hThread, INFINITE);
-	std::cout << "Thread with id " << id << " end" << std::endl;
-	if (hThread != NULL) CloseHandle(hThread);
-
-	if (temp.hEventWr != NULL) { SetEvent(temp.hEventWr); }
 }
 
-void ReadThread(Handles& h, const EventHandles& temp) {
+void ReadThread(Handles& h, EventHandles& temp) {
 	EventHandles* ev = new EventHandles;
 	ev->hAccess = temp.hAccess;
 	ev->hPipe = temp.hPipe;
@@ -239,7 +253,7 @@ void ReadThread(Handles& h, const EventHandles& temp) {
 					if (ev1->hEventRd != NULL) res = WaitForSingleObject(ev1->hEventRd, INFINITE);
 					if (res == WAIT_OBJECT_0) {
 						cout << "Get signal to read from client " << endl;
-						Readfrom(*ev1);
+						Readfrom(*ev1);//вот тут передается копия изза чего индекс всегда 0
 					}
 				}
 				return 0;	}
@@ -272,6 +286,7 @@ bool Initialize(EventHandles& ev) {
 	BOOL connect_pipe;
 	DWORD p_input = sizeof(Client);
 	DWORD p_output = sizeof(Client);
+	ev.hEventAfterOperations = CreateEvent(NULL, FALSE, FALSE, L"hEventAfterOperations");
 	ev.hEventWr = CreateEvent(NULL, FALSE, FALSE, L"EventWr");
 	ev.hEventRd = CreateEvent(NULL, FALSE, FALSE, L"EventRd");
 	ev.hEventEx = CreateEvent(NULL, FALSE, FALSE, L"hEventEx");
@@ -366,6 +381,7 @@ void CloseHandles(Handles& h, EventHandles& ev) {
 	if (ev.hEventEx != NULL) CloseHandle(ev.hEventEx);
 	if (ev.hAccess != NULL) CloseHandle(ev.hAccess);
 	if (ev.hDenied != NULL) CloseHandle(ev.hDenied);
+	if (ev.hEventAfterOperations != NULL) CloseHandle(ev.hEventAfterOperations);
 }
 
 int main()
@@ -377,6 +393,7 @@ int main()
 	if (connect_pipe) {
 		ReadThread(h, ev);
 		ExitTread(ev, h);
+		WriteThread(ev, h);
 		while (1) {
 			if (h.hImitatioOfWork == NULL) h.hImitatioOfWork = CreateThread(NULL, 0, ImitatioOfWork, NULL, 0, NULL);
 			Admin(h.hImitatioOfWork);
