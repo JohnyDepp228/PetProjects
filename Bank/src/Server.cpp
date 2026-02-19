@@ -23,7 +23,7 @@ struct Client {
 };
 
 
-BOOL WriteToDatabase() {
+BOOL WriteToDatabaseCard() {
 	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
 		cout << "Invalid file handle" << endl;
@@ -85,7 +85,7 @@ BOOL ReadFromDatabase(Client& k) {
 	if (hdatabase != NULL) CloseHandle(hdatabase);
 	return readdata;
 }
-//чтение из базыданных
+//чтение из базыданных и запись в пайп
 void WriteTo(const EventHandles& ev) {
 	BOOL write_pipe;
 	DWORD written_Bytes = 0;
@@ -109,6 +109,7 @@ void Readfrom(EventHandles& ev) {
 		if (hdatabase != NULL) CloseHandle(hdatabase);
 		return;
 	}
+	DWORD written_Bytes = 0;
 	BOOL read_pipe;
 	DWORD read_Bytes = 0;
 	DWORD readbytes;
@@ -144,6 +145,11 @@ void Readfrom(EventHandles& ev) {
 				return;
 			}
 			if (strcmp(k1.card_num, k2.card_num) == 0 && k1.pin == k2.pin) {
+				WriteFile(ev.hPipe, &k2, sizeof(Client), &written_Bytes, NULL);
+				if (written_Bytes != sizeof(Client)) {
+					std::cout << "Written less bytes " << written_Bytes << "Error code: " << GetLastError() << std::endl;
+					exit(1);
+				}
 				eventAccsig = SetEvent(ev.hAccess);
 				if (eventAccsig == FALSE) {
 					cout << "Didn't sent signl to access " << endl;
@@ -256,7 +262,7 @@ void Admin(HANDLE hImitatioOfWork) {
 		if (code == '3')
 		{
 			if (hImitatioOfWork != NULL) SuspendThread(hImitatioOfWork);
-			WriteToDatabase();
+			WriteToDatabaseCard();
 			if (hImitatioOfWork != NULL) ResumeThread(hImitatioOfWork);
 		}
 	}
@@ -364,10 +370,7 @@ void CloseHandles(Handles& h, EventHandles& ev) {
 
 int main()
 {
-	BOOL connect_pipe;
-	BOOL FlushFile;
-	BOOL disconect_pipe;
-	BOOL CloseHandleThreadWrite;
+	bool connect_pipe;
 	Handles h;
 	EventHandles ev;
 	connect_pipe = Initialize(ev);

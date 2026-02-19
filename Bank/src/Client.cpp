@@ -1,10 +1,22 @@
-#include "Libs.h"
+#include <iostream>
+#include <windows.h>
+#include <thread>
+#include <chrono>
+#include <functional> 
+#include <string>
+#include <conio.h>
 
+using std::cin;
+using std::cout;
+using std::endl;
+using std::string;
+
+#define SIZEBYTES 17
 bool GlobalBwrite = FALSE;
 
 struct Client {
 	double balance;
-	int pin;
+	unsigned int pin;
 	char card_num[17];
 };
 
@@ -76,8 +88,7 @@ bool WritetoFile(HANDLE hPipe) {
 		return false;
 	}
 }
-void ThreadRead(LPVOID param, HANDLE hEventWr, HANDLE hPipe, HANDLE hSemSigToWrite) {
-	ReleaseSemaphore(hSemSigToWrite, 1, NULL);
+void ThreadRead(LPVOID param, HANDLE hEventWr, HANDLE hPipe) {
 	if (hEventWr != NULL) WaitForSingleObject(hEventWr, INFINITE);
 	DWORD id1 = 0;
 	HANDLE hThread = CreateThread(NULL, 0,
@@ -126,7 +137,7 @@ void Menu() {
 }
 
 
-bool Initialize(Handles& h) {
+void Initialize(Handles& h) {
 	h.hEventRd = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"EventRd");
 	h.hEventWr = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hEventWr");
 	h.hEventEx = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hEventEx");
@@ -159,6 +170,45 @@ void CloseHandles(Handles& h) {
 	CloseHandle(h.hEventEx);
 }
 
+void Operations(Client& k) {
+	char ch;
+	int money_amount;
+	while (1) {
+		cout << "Choose operation: " << endl;
+		cout << "1. Withdraw money from the card " << endl;
+		cout << "2. Put money into the card " << endl;
+		cout << "3. Find out the balance on the card " << endl;
+		cout << "4. Exit " << endl;
+		ch = _getch();
+		switch (ch) {
+		case '1':
+			cout << "Enter amout of money you want to withdraw: ";
+			cin >> money_amount;
+			cout << endl;
+			if (money_amount > k.balance) {
+				cout << "Not enough money on card " << endl;
+			}
+			else {
+				k.balance -= money_amount;
+				cout << "Success" << endl;
+				cout << "New balance: " << k.balance << endl;
+			}
+			break;
+		case '2':
+			cout << "Enter amout of money you want to put: ";
+			cin >> money_amount;
+			cout << endl;
+			k.balance += money_amount;
+			cout << "Success" << endl;
+			cout << "New balance: " << k.balance << endl;
+			break;
+		case '3':
+			cout << "Balance on card: " << k.balance << endl; break;
+		case '4':
+			return;	break;
+		}
+	}
+}
 
 int main()
 {
@@ -167,8 +217,11 @@ int main()
 
 
 	char choose;
+	bool access = false;
 	DWORD approved = NULL;
 	DWORD denied = NULL;
+	Client k = { 0.0,000,"0000000000000000" };
+	DWORD readBytes = 0;
 	while (1) {
 		Menu();
 		cout << "Waiting..." << endl;
@@ -181,10 +234,22 @@ int main()
 			if (h.hAccess != NULL) approved = WaitForSingleObject(h.hAccess, 2000);
 			if (approved == WAIT_OBJECT_0) {
 				cout << "Approved " << endl;
+				ReadFile(h.hPipe, &k, sizeof(Client), &readBytes, NULL);
+				if (readBytes != sizeof(Client)) {
+					cout << "Error with reading after access " << GetLastError() << endl;
+					return 12;
+				}
+				else {
+					cout << "Read struct succesfully after access " << endl;
+					access = true;
+				}
 			}
 			if (h.hDenied != NULL) denied = WaitForSingleObject(h.hDenied, 2000);
 			if (denied == WAIT_OBJECT_0) {
 				cout << "Denied" << endl;
+			}
+			if (access) {
+				Operations(k);
 			}
 			break;
 

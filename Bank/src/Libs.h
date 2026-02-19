@@ -1,5 +1,5 @@
 #ifndef LIBS.H
-#define LIBS.H
+#define LIBS
 
 #include <iostream>
 #include <windows.h>
