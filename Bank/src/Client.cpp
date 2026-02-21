@@ -12,9 +12,10 @@ using std::endl;
 using std::string;
 
 #define SIZEBYTES 17
-bool GlobalBwrite = FALSE;//убрать
+bool GlobalBwrite = FALSE;
 
 struct Client {
+	unsigned int pos;
 	double balance;
 	unsigned int pin;
 	char card_num[17];
@@ -248,14 +249,13 @@ int main()
 {
 	Handles h;
 	Initialize(h);
-
-
 	char choose;
 	bool access = false;
 	DWORD approved = NULL;
 	DWORD denied = NULL;
-	Client k = { 0.0,000,"0000000000000000" };
+	Client k = { 0,0.0,000,"0000000000000000" };
 	DWORD readBytes = 0;
+	bool readfile = false;
 	while (1) {
 		Menu();
 		cout << "Waiting..." << endl;
@@ -268,14 +268,19 @@ int main()
 			if (h.hAccess != NULL) approved = WaitForSingleObject(h.hAccess, 2000);
 			if (approved == WAIT_OBJECT_0) {
 				cout << "Approved " << endl;
-				ReadFile(h.hPipe, &k, sizeof(Client), &readBytes, NULL);
-				if (readBytes != sizeof(Client)) {
-					cout << "Error with reading after access " << GetLastError() << endl;
-					return 12;
+				readfile = ReadFile(h.hPipe, &k, sizeof(Client), &readBytes, NULL);
+				if (readfile) {
+					if (readBytes != sizeof(Client)) {
+						cout << "Error with reading after access " << GetLastError() << endl;
+						return 12;
+					}
+					else {
+						cout << "Read struct succesfully after access " << endl;
+						access = true;
+					}
 				}
 				else {
-					cout << "Read struct succesfully after access " << endl;
-					access = true;
+					cout << "Can't read file " << GetLastError() << endl;
 				}
 			}
 			if (h.hDenied != NULL) denied = WaitForSingleObject(h.hDenied, 2000);

@@ -9,7 +9,6 @@ struct Handles {
 	HANDLE hAdmin = NULL;
 };
 struct EventHandles {
-	unsigned int index = 0;
 	HANDLE hPipe = NULL;
 	HANDLE hEventWr = NULL;
 	HANDLE hEventRd = NULL;
@@ -19,18 +18,26 @@ struct EventHandles {
 	HANDLE hDenied = NULL;
 };
 struct Client {
+	unsigned int pos;
 	double balance;
 	unsigned int pin;
 	char card_num[17];
 };
 BOOL WriteToDatabaseCard() {
-	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_WRITE, FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+	LARGE_INTEGER sizeOfFile;
+	bool readfile = false;
+	DWORD readbytes = 0;
+	Client temp = { 0,0.0,000,"0000000000000000" };
+	Client k = { 0,0.0,000,"0000000000000000" };
+	BOOL writedata;
+	DWORD wrotebytes;
+	int BytesToMove = sizeof(Client);
+	DWORD pos = 0;
+	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_ALL, FILE_SHARE_WRITE | FILE_SHARE_READ, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
 		cout << "Invalid file handle" << endl;
 		return FALSE;
 	}
-	SetFilePointer(hdatabase, 0, NULL, FILE_END);
-	Client k = { 0.0,000,"0000000000000000" };
 	cout << "Enter card number: " << endl;
 	std::cin >> k.card_num;
 	if (strlen(k.card_num) != 16) {
@@ -40,8 +47,29 @@ BOOL WriteToDatabaseCard() {
 	k.balance = 100.5;
 	k.pin = atoi(&k.card_num[13]);
 	cout << "PIN: " << k.pin << endl;
-	BOOL writedata;
-	DWORD wrotebytes;
+	GetFileSizeEx(hdatabase, &sizeOfFile);
+	if (sizeOfFile.QuadPart >= sizeof(Client)) {
+		SetLastError(0);
+		pos = SetFilePointer(hdatabase, -BytesToMove, NULL, FILE_END);
+		readfile = ReadFile(hdatabase, &temp, sizeof(Client), &readbytes, NULL);
+		if (readfile) {
+			if (readbytes != sizeof(Client)) {
+				cout << "Error with reading from database for index " << GetLastError() << endl;
+				exit(0);
+			}
+		}
+		else {
+			cout << "Can't read file " << GetLastError() << endl;
+		}
+		k.pos = temp.pos + 1;
+	}
+	else {
+		SetFilePointer(hdatabase, 0, NULL, FILE_BEGIN);
+		k.pos = 0;
+	}
+	cout << "Get pos " << temp.pos << "With card number: " << temp.card_num << endl;
+	cout << "Card position: " << k.pos << endl;
+	SetFilePointer(hdatabase, 0, NULL, FILE_END);
 	writedata = WriteFile(hdatabase, &k, sizeof(Client), &wrotebytes, NULL);
 	if (wrotebytes < sizeof(Client)) {
 		cout << "Wrote to data less than requird " << GetLastError() << endl;
@@ -50,16 +78,10 @@ BOOL WriteToDatabaseCard() {
 	return writedata;
 }
 
-BOOL WriteToDatabase(const Client& k, const unsigned int& index) {
+BOOL WriteToDatabase(Client& k) {
 	HANDLE hdatabase = CreateFileA(FILENAME, GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
-	unsigned int pos = index * sizeof(Client);
-	cout << "Index to write: " << index << endl;
-	SetFilePointer(hdatabase, pos, NULL, FILE_BEGIN);
-	if (hdatabase == INVALID_HANDLE_VALUE || hdatabase == NULL) {
-		cout << "Invalid file handle Write" << endl;
-		if (hdatabase != NULL) CloseHandle(hdatabase);
-		return FALSE;
-	}
+	unsigned int pos = k.pos * sizeof(Client);
+	cout << "Index to write: " << k.pos << endl;
 	BOOL writedata;
 	DWORD wrotebytes;
 	writedata = WriteFile(hdatabase, &k, sizeof(Client), &wrotebytes, NULL);
@@ -116,8 +138,8 @@ void Readfrom(EventHandles& ev) {
 	DWORD read_Bytes = 0;
 	DWORD readbytes;
 	bool bAccess = FALSE;
-	Client k1 = { 0.0,000,"0000000000000000" };
-	Client k2 = { 0.0,000,"0000000000000000" };
+	Client k1 = { 0,0.0,000,"0000000000000000" };
+	Client k2 = { 0,0.0,000,"0000000000000000" };
 	BOOL eventAccsig = FALSE;
 	BOOL eventDensig = FALSE;
 	cout << "Reading form pipe..." << endl;
@@ -162,7 +184,6 @@ void Readfrom(EventHandles& ev) {
 				bAccess = TRUE;
 				break;
 			}
-			ev.index++;
 		}
 	}
 	if (!bAccess) cout << "Trying to access" << endl;
@@ -206,7 +227,6 @@ void WriteThread(EventHandles& temp, Handles& h) {
 	ev->hEventRd = temp.hEventRd;
 	ev->hEventWr = temp.hEventWr;
 	ev->hEventAfterOperations = temp.hEventAfterOperations;
-	ev->index = temp.index;
 	h.hThreadWriting = CreateThread(
 		NULL,
 		0,
@@ -214,7 +234,7 @@ void WriteThread(EventHandles& temp, Handles& h) {
 			DWORD readbytes = 0;
 			bool readfile;
 			EventHandles* ev1 = (EventHandles*)param;
-			Client temp_k = { 0.0,000,"0000000000000000" };
+			Client temp_k = { 0,0.0,000,"0000000000000000" };
 			while (1) {
 				WaitForSingleObject(ev1->hEventAfterOperations, INFINITE);
 				readfile = ReadFile(ev1->hPipe, &temp_k, sizeof(Client), &readbytes, NULL);
@@ -224,7 +244,7 @@ void WriteThread(EventHandles& temp, Handles& h) {
 						exit(0);
 					}
 					else {
-						WriteToDatabase(temp_k, ev1->index);
+						WriteToDatabase(temp_k);
 					}
 				}
 				else {
@@ -402,7 +422,6 @@ int main()
 	else {
 		std::cout << "Error with connecting to PIPE " << GetLastError() << std::endl;
 	}
-
 	CloseHandles(h, ev);
 	return 0;
 }
