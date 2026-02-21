@@ -23,6 +23,18 @@ struct Client {
 	unsigned int pin;
 	char card_num[17];
 };
+
+void incrypt(char* card_num, int size, int key) {
+	for (int i = 0; i < size; i++) {
+		card_num[i] ^= key;
+	}
+}
+void decrypt(char* card_num, int size, int key) {
+	for (int i = 0; i < size; i++) {
+		card_num[i] ^= key;
+	}
+}
+
 BOOL WriteToDatabaseCard() {
 	LARGE_INTEGER sizeOfFile;
 	bool readfile = false;
@@ -47,6 +59,7 @@ BOOL WriteToDatabaseCard() {
 	k.balance = 100.5;
 	k.pin = atoi(&k.card_num[13]);
 	cout << "PIN: " << k.pin << endl;
+	incrypt(k.card_num, 16, 13);
 	GetFileSizeEx(hdatabase, &sizeOfFile);
 	if (sizeOfFile.QuadPart >= sizeof(Client)) {
 		SetLastError(0);
@@ -67,8 +80,6 @@ BOOL WriteToDatabaseCard() {
 		SetFilePointer(hdatabase, 0, NULL, FILE_BEGIN);
 		k.pos = 0;
 	}
-	cout << "Get pos " << temp.pos << "With card number: " << temp.card_num << endl;
-	cout << "Card position: " << k.pos << endl;
 	SetFilePointer(hdatabase, 0, NULL, FILE_END);
 	writedata = WriteFile(hdatabase, &k, sizeof(Client), &wrotebytes, NULL);
 	if (wrotebytes < sizeof(Client)) {
@@ -84,6 +95,7 @@ BOOL WriteToDatabase(Client& k) {
 	cout << "Index to write: " << k.pos << endl;
 	BOOL writedata;
 	DWORD wrotebytes;
+	incrypt(k.card_num, 16, 13);
 	writedata = WriteFile(hdatabase, &k, sizeof(Client), &wrotebytes, NULL);
 	if (wrotebytes < sizeof(Client)) {
 		cout << "Wrote to data less than requird " << GetLastError() << endl;
@@ -102,6 +114,7 @@ BOOL ReadFromDatabase(Client& k) {
 	BOOL readdata;
 	DWORD readbytes;
 	readdata = ReadFile(hdatabase, &k, sizeof(Client), &readbytes, NULL);
+	decrypt(k.card_num, 16, 13);
 	if (readbytes < sizeof(Client)) {
 		cout << "Read less than requird " << GetLastError() << endl;
 	}
@@ -152,6 +165,7 @@ void Readfrom(EventHandles& ev) {
 		}
 		SetFilePointer(hdatabase, 0, NULL, FILE_BEGIN);
 		while (ReadFile(hdatabase, &k2, sizeof(Client), &readbytes, NULL)) {
+			decrypt(k2.card_num, 16, 13);
 			if (readbytes == 0) {
 				cout << "Reached end of file and no data find " << endl;
 				eventDensig = SetEvent(ev.hDenied);
