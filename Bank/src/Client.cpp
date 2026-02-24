@@ -13,7 +13,6 @@ using std::string;
 
 #define SIZEBYTES 17
 bool GlobalBwrite = FALSE;
-
 struct Client {
 	unsigned int pos;
 	double balance;
@@ -29,6 +28,8 @@ struct Handles {
 	HANDLE hAccess = NULL;
 	HANDLE hDenied = NULL;
 	HANDLE hEventAfterOperations = NULL;
+	HANDLE hEventExRd = NULL;
+	HANDLE hEventExWr = NULL;
 };
 
 
@@ -142,10 +143,40 @@ void Menu() {
 void Initialize(Handles& h) {
 	h.hEventRd = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"EventRd");
 	h.hEventWr = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hEventWr");
+	if (h.hEventRd == NULL) {
+		cout << "Can't open hEventRd " << GetLastError() << endl;
+		return;
+	}
 	h.hEventEx = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hEventEx");
+	if (h.hEventEx == NULL) {
+		cout << "Can't open hEventEx " << GetLastError() << endl;
+		return;
+	}
 	h.hAccess = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hAccess");
+	if (h.hAccess == NULL) {
+		cout << "Can't open hAccess " << GetLastError() << endl;
+		return;
+	}
 	h.hDenied = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hDenied");
+	if (h.hDenied == NULL) {
+		cout << "Can't open hDenied " << GetLastError() << endl;
+		return;
+	}
+	h.hEventExRd = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hEventExRd");
+	if (h.hEventExRd == NULL) {
+		cout << "Can't open hEventExRd " << GetLastError() << endl;
+		return;
+	}
+	h.hEventExWr = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hEventExWr");
+	if (h.hEventExWr == NULL) {
+		cout << "Can't open hEventExWr " << GetLastError() << endl;
+		return;
+	}
 	h.hEventAfterOperations = OpenEvent(EVENT_ALL_ACCESS, FALSE, L"hEventAfterOperations");
+	if (h.hEventAfterOperations == NULL) {
+		cout << "Can't open hEventAfterOperations " << GetLastError() << endl;
+		return;
+	}
 
 	h.hPipe = CreateFileW(
 		L"\\\\.\\pipe\\Server_pipe"
@@ -162,15 +193,6 @@ void Initialize(Handles& h) {
 	else {
 		cout << "========= Client start =========" << endl;
 	}
-}
-
-void CloseHandles(Handles& h) {
-	CloseHandle(h.hPipe);
-	CloseHandle(h.hEventRd);
-	CloseHandle(h.hEventWr);
-	CloseHandle(h.hAccess);
-	CloseHandle(h.hDenied);
-	CloseHandle(h.hEventEx);
 }
 
 void Operations(Client& k, const Handles& h) {
@@ -245,6 +267,20 @@ void Operations(Client& k, const Handles& h) {
 	}
 }
 
+void CloseHandles(Handles& h) {
+	cout << "Closing Handles " << endl;
+	if (h.hPipe != NULL) CloseHandle(h.hPipe);
+	if (h.hEventRd != NULL) CloseHandle(h.hEventRd);
+	if (h.hEventWr != NULL) CloseHandle(h.hEventWr);
+	if (h.hAccess != NULL) CloseHandle(h.hAccess);
+	if (h.hDenied != NULL) CloseHandle(h.hDenied);
+	if (h.hEventRd != NULL) CloseHandle(h.hEventRd);
+	if (h.hEventWr != NULL) CloseHandle(h.hEventWr);
+	if (h.hEventExRd != NULL) CloseHandle(h.hEventExRd);
+	if (h.hEventExWr != NULL) CloseHandle(h.hEventExWr);
+	cout << "Closed Handles " << endl;
+}
+
 int main()
 {
 	Handles h;
@@ -286,6 +322,7 @@ int main()
 			if (h.hDenied != NULL) denied = WaitForSingleObject(h.hDenied, 2000);
 			if (denied == WAIT_OBJECT_0) {
 				cout << "Denied" << endl;
+				access = false;
 			}
 			if (access) {
 				Operations(k, h);
@@ -297,15 +334,15 @@ int main()
 			if (h.hEventEx != NULL)
 			{
 				SetEvent(h.hEventEx);
+				SetEvent(h.hEventExRd);
+				SetEvent(h.hEventExWr);
 			}
 			cout << "Sent signal to exit " << endl;
+			CloseHandles(h);
 			return 0;
 			break;
 
 		}
 	}
-
-
-	CloseHandles(h);
 	return 0;
 }
