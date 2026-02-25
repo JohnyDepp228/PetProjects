@@ -1,0 +1,4 @@
+var searchData=
+[
+  ['balance_0',['balance',['../struct_client.html#a1ea01ac5bad19eb02f155bb898295929',1,'Client']]]
+];
