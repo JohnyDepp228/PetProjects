@@ -14,5 +14,5 @@ jobs:
         uses: AgarwalSaurav/ghaction-doxygen-ghpages@release/v2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          doxyfile-path: Bank/doc/Doxyfile # путь к вашему Doxyfile
+          doxyfile-path: Bank/docs/Doxyfile # путь к вашему Doxyfile
           branch: gh-pages # ветка для публикации документации
