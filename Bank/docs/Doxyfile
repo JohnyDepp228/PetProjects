@@ -1469,7 +1469,7 @@ HTML_STYLESHEET        =
 # documentation.
 # This tag requires that the tag GENERATE_HTML is set to YES.
 
-HTML_EXTRA_STYLESHEET  = C:/Users/Boss/Desktop/BankProject/Bank/doc/build/_deps/doxygen-awesome-css-src/doxygen-awesome.css
+HTML_EXTRA_STYLESHEET  = Bank/docs/build/_deps/doxygen-awesome-css-src/doxygen-awesome.css
 
 # The HTML_EXTRA_FILES tag can be used to specify one or more extra images or
 # other source files which should be copied to the HTML output directory. Note
