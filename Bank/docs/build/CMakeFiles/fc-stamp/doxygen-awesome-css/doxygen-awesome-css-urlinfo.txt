@@ -1,0 +1,12 @@
+# This is a generated file and its contents are an internal implementation detail.
+# The download step will be re-executed if anything in this file changes.
+# No other meaning or use of this file is supported.
+
+method=url
+command=C:/Program Files/CMake/bin/cmake.exe;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;C:/Users/Boss/Desktop/BankProject/Bank/docs/build/CMakeFiles/fc-stamp/doxygen-awesome-css/download-doxygen-awesome-css.cmake;COMMAND;C:/Program Files/CMake/bin/cmake.exe;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;C:/Users/Boss/Desktop/BankProject/Bank/docs/build/CMakeFiles/fc-stamp/doxygen-awesome-css/verify-doxygen-awesome-css.cmake;COMMAND;C:/Program Files/CMake/bin/cmake.exe;-DCMAKE_MESSAGE_LOG_LEVEL=VERBOSE;-P;C:/Users/Boss/Desktop/BankProject/Bank/docs/build/CMakeFiles/fc-stamp/doxygen-awesome-css/extract-doxygen-awesome-css.cmake
+source_dir=C:/Users/Boss/Desktop/BankProject/Bank/docs/build/_deps/doxygen-awesome-css-src
+work_dir=C:/Users/Boss/Desktop/BankProject/Bank/docs/build/_deps
+url(s)=https://github.com/jothepro/doxygen-awesome-css/archive/refs/heads/main.zip
+hash=
+      no_extract=
+

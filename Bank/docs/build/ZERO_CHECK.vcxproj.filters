@@ -1,0 +1,13 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="17.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <CustomBuild Include="C:\Users\Boss\Desktop\BankProject\Bank\docs\build\CMakeFiles\1eeb58ddd0d3e86d1fa9417687c765a9\generate.stamp.rule">
+      <Filter>CMake Rules</Filter>
+    </CustomBuild>
+  </ItemGroup>
+  <ItemGroup>
+    <Filter Include="CMake Rules">
+      <UniqueIdentifier>{1534BEAB-9018-37F7-BC0A-9E9B8A3D7FC4}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+</Project>

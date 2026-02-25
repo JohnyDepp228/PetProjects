@@ -1,0 +1,2 @@
+C:/Users/Boss/Desktop/BankProject/Bank/docs/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/Boss/Desktop/BankProject/Bank/docs/build/CMakeFiles/ZERO_CHECK.dir
